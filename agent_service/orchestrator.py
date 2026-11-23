@@ -20,6 +20,7 @@ from . import replies
 from .agents import AGENT_TOOLS, system_prompt
 from .confirm import is_confirmation
 from .context import PatientContext
+from .filters import grounded_numbers, no_medical_advice
 from .emergency import SAFETY_REPLY, UNVERIFIED_REPLY, check_emergency, has_soft_symptom
 from .hooks import write_policy
 from .hospital import Hospital, HospitalError
@@ -107,11 +108,12 @@ def _turn(req: ChatRequest, session: dict, trace: Trace, deps: Deps) -> Reply:
     return _run_specialist(agent, messages, session, ctx, trace, deps, lang)
 
 
-def _hooks(trace: Trace) -> Hooks:
+def _hooks(trace: Trace, agent: str) -> Hooks:
     def budget(request, ctx):
         return Block("Sorry, this is taking too long. Please try again.") if trace.total_cost_usd > MAX_TURN_COST_USD else None
 
-    return Hooks(before_tool=[write_policy], before_model=[budget])
+    after_model = [no_medical_advice] + ([grounded_numbers] if agent == "info" else [])
+    return Hooks(before_tool=[write_policy], before_model=[budget], after_model=after_model)
 
 
 def _now(deps: Deps):
@@ -124,7 +126,7 @@ def _now(deps: Deps):
 def _run_specialist(agent, messages, session, ctx, trace, deps, lang, lead: str | None = None, failed: bool = False) -> Reply:
     result = run_agent(
         client=deps.client, model=SPECIALIST_MODEL, system=system_prompt(agent, _now(deps)),
-        registry=build_registry(AGENT_TOOLS[agent]), messages=messages, ctx=ctx, trace=trace, hooks=_hooks(trace),
+        registry=build_registry(AGENT_TOOLS[agent]), messages=messages, ctx=ctx, trace=trace, hooks=_hooks(trace, agent),
         config=replace(SPECIALIST, sleep=deps.sleep), max_seconds=SPECIALIST_MAX_SECONDS, max_tokens=700,
     )
     text = result.text.strip()
@@ -148,7 +150,7 @@ def _run_confirmed(pending, req, session, ctx, trace, deps, lang) -> Reply:
     ctx.approved.add(pending["fingerprint"])
     ctx.operation_id = pending["id"]  # becomes the booking's idempotency key
     result = execute_tool_call(
-        build_registry(AGENT_TOOLS[pending["agent"]]), pending["name"], pending["input"], ctx, trace, _hooks(trace),
+        build_registry(AGENT_TOOLS[pending["agent"]]), pending["name"], pending["input"], ctx, trace, _hooks(trace, pending["agent"]),
     )
     outcome = ctx.outcomes[-1] if ctx.outcomes else None
     ctx.approved.clear()  # approval is for this one call only
