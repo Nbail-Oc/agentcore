@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from agentcore.loop import execute_tool_call, run_agent
 from agentcore.tools import ToolRegistry
-from agentcore.trace import Trace
+from agentcore.trace import Span, Trace
 from tests.fake_claude import FakeClaude, text, tool_use
 
 
@@ -46,11 +46,66 @@ def test_trace_totals_sum_the_spans():
     assert trace.total_cost_usd == pytest.approx(2 * (100 * 0.10 / 1e6 + 20 * 0.50 / 1e6))
 
 
-def test_unknown_model_costs_zero_instead_of_failing():
+def test_unknown_model_cost_is_unknown_not_zero():
     result = run_agent(client=FakeClaude([text("hi")]), model="mystery", system="s", registry=_registry(),
                        messages=[{"role": "user", "content": "hi"}])
 
-    assert result.trace.spans[0].cost_usd == 0.0
+    assert result.trace.spans[0].cost_usd is None
+    assert result.trace.cost_complete is False
+
+
+def test_known_models_make_the_cost_complete():
+    assert _run(FakeClaude([text("hi")])).trace.cost_complete is True
+
+
+def test_model_span_input_has_the_system_prompt_and_every_message():
+    fake = FakeClaude([tool_use("add", {"a": 2, "b": 3}), text("5")])
+
+    spans = _run(fake).trace.spans
+
+    first, second = spans[0].input, spans[2].input
+    assert first["system"] == "s"
+    assert first["messages"] == [{"role": "user", "content": "hi"}]
+    assert [m["role"] for m in second["messages"]] == ["user", "assistant", "user"]
+    assert second["messages"][1]["content"] == [{"tool_use": "add", "input": {"a": 2, "b": 3}}]
+    assert second["messages"][2]["content"] == [{"tool_result": "5", "is_error": False}]
+
+
+def test_nested_values_are_clipped():
+    trace = Trace()
+
+    trace.add(Span("tool", "t", {"a": {"b": ["x" * 5000]}}, None, 0.0))
+
+    assert len(trace.spans[0].input["a"]["b"][0]) < 5_000
+
+
+def test_objects_are_stored_as_a_type_name_not_a_repr():
+    class Secretive:
+        def __repr__(self):
+            return "Secretive(token=hunter2)"
+
+    trace = Trace()
+
+    trace.add(Span("tool", "t", {"obj": Secretive()}, None, 0.0))
+
+    assert trace.spans[0].input == {"obj": "<Secretive>"}
+
+
+def test_api_keys_are_scrubbed_from_spans():
+    trace = Trace()
+
+    trace.add(Span("tool", "t", None, "key sk-ant-api03-abc_DEF-123 leaked", 0.0))
+
+    assert "sk-ant" not in trace.spans[0].output
+
+
+def test_caller_can_redact_sensitive_values():
+    trace = Trace(redact=lambda s: s.replace("9876543210", "******3210"))
+
+    trace.add(Span("tool", "t", {"phone": "9876543210"}, "for 9876543210", 0.0))
+
+    assert trace.spans[0].input == {"phone": "******3210"}
+    assert trace.spans[0].output == "for ******3210"
 
 
 def test_a_shared_trace_collects_spans_from_several_runs():

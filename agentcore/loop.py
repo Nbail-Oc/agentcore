@@ -4,8 +4,9 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from .model import CallConfig, ModelCallError, call_model, response_text
 from .tools import ToolRegistry, ToolResult
-from .trace import Span, Trace, clip
+from .trace import Span, Trace
 
 # Anything not listed here (and not tool_use / pause_turn) becomes "unexpected_stop".
 STATUS_FOR_STOP_REASON = {
@@ -19,7 +20,10 @@ STATUS_FOR_STOP_REASON = {
 
 @dataclass
 class AgentResult:
-    """Only treat `text` as the answer when status == "done". Do not store `messages` otherwise."""
+    """Only treat `text` as the answer when status == "done". Do not store `messages` otherwise.
+
+    Other statuses: step_limit, timeout, api_error, max_tokens, refusal, context_exceeded, unexpected_stop.
+    """
 
     text: str
     messages: list[dict]  # messages added by this run, in order
@@ -31,45 +35,35 @@ def execute_tool_call(registry: ToolRegistry, name: str, raw_input: Any, ctx: An
     """The one path every tool call takes, whether the model asked for it or the app resumes it."""
     started = time.perf_counter()
     result = registry.execute(name, raw_input, ctx)
-    shown_input = {k: clip(v) for k, v in raw_input.items()} if isinstance(raw_input, dict) else clip(str(raw_input))
-    trace.add(Span("tool", name, shown_input, clip(result.content), time.perf_counter() - started, is_error=result.is_error))
+    trace.add(Span("tool", name, raw_input, result.content, time.perf_counter() - started, is_error=result.is_error))
     return result
-
-
-def _describe(message: dict) -> Any:
-    content = message["content"]
-    return clip(content) if isinstance(content, str) else f"{len(content)} blocks"
-
-
-def _text(response: Any) -> str:
-    return "".join(b.text for b in response.content if b.type == "text")
 
 
 def run_agent(
     *, client: Any, model: str, system: str, registry: ToolRegistry, messages: list[dict],
-    ctx: Any = None, max_tokens: int = 1024, max_steps: int = 8, trace: Trace | None = None,
+    ctx: Any = None, max_tokens: int = 1024, max_steps: int = 8, max_seconds: float | None = None,
+    trace: Trace | None = None, config: CallConfig = CallConfig(),
 ) -> AgentResult:
-    """max_steps counts model calls. At the limit, tools the model just asked for are NOT run."""
+    """max_steps counts model calls. At the limit, tools the model just asked for are NOT run.
+
+    max_seconds bounds the whole run (model calls, waits and tools, checked between steps).
+    """
     if max_steps < 1:
         raise ValueError("max_steps must be at least 1")
     trace = trace if trace is not None else Trace()
+    deadline = config.clock() + max_seconds if max_seconds is not None else None
     tools = registry.definitions()
     new: list[dict] = []
     for step in range(max_steps):
-        history = messages + new
-        started = time.perf_counter()
-        response = client.messages.create(
-            model=model, max_tokens=max_tokens, system=system, tools=tools, messages=history,
-        )
-        in_tok = getattr(response.usage, "input_tokens", 0) or 0
-        out_tok = getattr(response.usage, "output_tokens", 0) or 0
-        trace.add(Span(
-            "model", model,
-            {"messages": len(history), "tools": [d["name"] for d in tools], "last": _describe(history[-1])},
-            {"stop_reason": response.stop_reason, "text": clip(_text(response)),
-             "tool_calls": [b.name for b in response.content if b.type == "tool_use"]},
-            time.perf_counter() - started, in_tok, out_tok, trace.cost_usd(model, in_tok, out_tok),
-        ))
+        if deadline is not None and config.clock() >= deadline:
+            return AgentResult("", new, "timeout", trace)
+        try:
+            response = call_model(
+                client, trace, model=model, system=system, tools=tools, messages=messages + new,
+                max_tokens=max_tokens, config=config, deadline=deadline,
+            )
+        except ModelCallError as e:
+            return AgentResult("", new, "timeout" if e.reason == "DeadlineExceeded" else "api_error", trace)
         new.append({"role": "assistant", "content": response.content})
         reason = response.stop_reason
         if reason == "tool_use":
@@ -85,5 +79,5 @@ def run_agent(
                     })
             new.append({"role": "user", "content": results})
         elif reason != "pause_turn":  # pause_turn: send the turn back unchanged so the model can continue
-            return AgentResult(_text(response), new, STATUS_FOR_STOP_REASON.get(reason, "unexpected_stop"), trace)
-    return AgentResult(_text(response), new, "step_limit", trace)
+            return AgentResult(response_text(response), new, STATUS_FOR_STOP_REASON.get(reason, "unexpected_stop"), trace)
+    return AgentResult(response_text(response), new, "step_limit", trace)
