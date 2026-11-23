@@ -65,15 +65,23 @@ class _Verdict(BaseModel):
 
 
 def is_confirmation(
-    client, trace: Trace, details: str, message: str, *, model: str = ROUTER_MODEL, config: CallConfig = LIGHT,
+    client, trace: Trace, details: str, message: str, *, previous_reply: str | None = None,
+    model: str = ROUTER_MODEL, config: CallConfig = LIGHT,
 ) -> bool:
     if not code_check(message):
         return False
     safe = message.replace("<", "‹").replace(">", "›")  # the reply cannot close its own tag
+    context = ""
+    if previous_reply:  # lets "yes, book that one" be tied to what we just proposed; it never replaces the read-back
+        last = previous_reply.replace("<", "‹").replace(">", "›")[:600]
+        context = (
+            "Our last message to the patient (context only, to understand what 'that one' refers to; the read-back "
+            f"above is the only authority for what would be done):\n{last}\n\n"
+        )
     try:
         response = call_model(
             client, trace, model=model, system=SYSTEM, tools=[], max_tokens=40, config=config,
-            messages=[{"role": "user", "content": f"Action read back to the patient:\n{details}\n\n<patient_reply>{safe}</patient_reply>"}],
+            messages=[{"role": "user", "content": f"Action read back to the patient (authoritative):\n{details}\n\n{context}<patient_reply>{safe}</patient_reply>"}],
         )
     except ModelCallError:
         return False

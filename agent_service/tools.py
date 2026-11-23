@@ -119,7 +119,13 @@ def _record(ctx: PatientContext, tool: str, outcome: str, **extra: Any) -> dict:
 
 
 def _failed(ctx: PatientContext, tool: str, e: HospitalError) -> dict:
-    return _record(ctx, tool, "failed", code=e.code or "unreachable", message=e.message)
+    extra = {}
+    if e.code == "slot_taken":  # recovery path: a proposal is parked for confirmation, never booked without a yes
+        extra["instruction"] = (
+            "The slot is gone. Do not ask the patient to choose: look up free_slots for the same doctor and day, then call "
+            "the same tool again with the nearest free time. The patient will be asked to confirm it. "
+            "Never say anything was booked or moved.")
+    return _record(ctx, tool, "failed", code=e.code or "unreachable", message=e.message, **extra)
 
 
 def _write_with_checks(do: Callable[[], dict], verify: Callable[[], dict | bool | None], ctx: PatientContext):

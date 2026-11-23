@@ -96,7 +96,9 @@ def _turn(req: ChatRequest, session: dict, trace: Trace, deps: Deps) -> Reply:
         return Reply(UNVERIFIED_REPLY, "safety", handoff=True)
 
     pending, session["pending"] = session.get("pending"), None  # consumed or cleared by this message
-    if pending and is_confirmation(deps.client, trace, pending["details"], req.message, config=light):
+    history = session["history"]
+    previous = history[-1]["content"] if history and history[-1]["role"] == "assistant" else None
+    if pending and is_confirmation(deps.client, trace, pending["details"], req.message, previous_reply=previous, config=light):
         return _run_confirmed(pending, req, session, ctx, trace, deps, lang)
 
     agent = route_message(deps.client, trace, session["history"], req.message, config=light)
