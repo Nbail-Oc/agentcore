@@ -22,10 +22,12 @@ class ToolError(Exception):
 class ToolResult:
     content: str
     is_error: bool = False
+    pending: Any = None  # a PendingCall when a hook parked the call for confirmation
 
 
 @dataclass(frozen=True)
 class _Tool:
+    name: str
     description: str
     input_model: type[BaseModel]
     fn: Callable[[Any, Any], Any]
@@ -37,7 +39,7 @@ class ToolRegistry:
 
     def register(self, name: str, description: str, input_model: type[BaseModel], fn: Callable[[Any, Any], Any]) -> None:
         """fn(args, ctx) gets the validated input model and an opaque caller context."""
-        self._tools[name] = _Tool(description, input_model, fn)
+        self._tools[name] = _Tool(name, description, input_model, fn)
 
     def definitions(self) -> list[dict]:
         out = []
@@ -47,8 +49,8 @@ class ToolRegistry:
             out.append({"name": name, "description": tool.description, "input_schema": schema})
         return out
 
-    def execute(self, name: str, raw_input: Any, ctx: Any = None) -> ToolResult:
-        """Run one tool call. Never raises: every failure becomes an error result."""
+    def prepare(self, name: str, raw_input: Any) -> "tuple[_Tool, BaseModel] | ToolResult":
+        """Find the tool and validate the model's input. An error result means the tool must not run."""
         tool = self._tools.get(name)
         if tool is None:
             return ToolResult(f"Unknown tool: {name}", True)
@@ -58,18 +60,21 @@ class ToolRegistry:
         if extra:
             return ToolResult(f"Unexpected input fields: {', '.join(extra)}", True)
         try:
-            args = tool.input_model.model_validate(raw_input)
+            return tool, tool.input_model.model_validate(raw_input)
         except ValidationError as e:
             # Field names and messages only: error["input"] could echo patient data.
             problems = "; ".join(f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors())
             return ToolResult(f"Invalid input: {problems}", True)
+
+    def run(self, tool: _Tool, args: BaseModel, ctx: Any = None) -> ToolResult:
+        """Run an already validated call. Never raises: every failure becomes an error result."""
         try:
             output = tool.fn(args, ctx)
         except ToolError as e:
             return ToolResult(str(e), True)
         except Exception as e:
             # Type only: exception text and tracebacks can carry patient data or secrets.
-            log.error("tool %s failed unexpectedly: %s", name, type(e).__name__)
+            log.error("tool %s failed unexpectedly: %s", tool.name, type(e).__name__)
             return ToolResult("The tool failed unexpectedly.", True)
         if isinstance(output, str):
             return ToolResult(output)
@@ -77,5 +82,10 @@ class ToolRegistry:
             return ToolResult(to_json(output).decode())
         except PydanticSerializationError as e:
             # No fallback=str: it would put the repr of arbitrary objects in front of the model.
-            log.error("tool %s returned an unserializable result: %s", name, type(e).__name__)
+            log.error("tool %s returned an unserializable result: %s", tool.name, type(e).__name__)
             return ToolResult("The tool returned a result that could not be converted to JSON.", True)
+
+    def execute(self, name: str, raw_input: Any, ctx: Any = None) -> ToolResult:
+        """Validate and run one call, with no hooks."""
+        prepared = self.prepare(name, raw_input)
+        return prepared if isinstance(prepared, ToolResult) else self.run(*prepared, ctx)
