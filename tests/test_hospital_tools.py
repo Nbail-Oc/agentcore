@@ -177,7 +177,7 @@ def test_a_misleading_slot_taken_after_our_own_saved_write_is_resolved_by_lookup
 
     taken = FakeHospital(reschedule=[UNKNOWN, definite("slot_taken")], appointments=[[appt(OLD)]])
     _, out = _run("reschedule_appointment", {"appointment_id": "A1003", "new_start": NEW}, _ctx(taken))
-    assert (out["outcome"], out["code"]) == ("failed", "slot_taken")
+    assert out["outcome"] == "unknown"  # nothing proves the first request is dead
 
 
 def test_reschedule_definite_failure_on_first_try_needs_no_lookup():

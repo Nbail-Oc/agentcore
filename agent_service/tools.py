@@ -135,8 +135,12 @@ def _write_with_checks(do: Callable[[], dict], verify: Callable[[], dict | bool 
             return "success", do(), False
         except HospitalError as e:
             if e.kind == "definite":
-                found = verify() if unknown_seen else None
-                return ("success", found, True) if isinstance(found, dict) else ("failed", e)
+                if not unknown_seen:
+                    return "failed", e
+                # An earlier try may still complete, so this error proves nothing (it can even be our own write
+                # showing up as slot_taken/not_active). Only the hospital's state can say; otherwise it stays unknown.
+                found = verify()
+                return ("success", found, True) if isinstance(found, dict) else ("unknown",)
             unknown_seen = True
             for wait in ([0] if attempt else [0, 1.0]):
                 ctx.sleep(wait) if wait else None
@@ -163,13 +167,17 @@ def book_appointment(args: BookIn, ctx: PatientContext):
         raise ToolError("This action has not been confirmed by the patient.")
     start = iso(parse_start(args.start))
     key = ctx.operation_id  # same key for every retry of this one operation; a new operation gets a new key
+    unknown_seen = False
     for attempt in range(3):
         try:
             appt = ctx.hospital.book(args.doctor_id, start, args.patient_name, ctx.phone, key)
             return _finish(ctx, "book_appointment", "booked", ("success", appt, False), _appt_view(ctx))
         except HospitalError as e:
             if e.kind == "definite":
-                return _failed(ctx, "book_appointment", e)
+                if not unknown_seen:
+                    return _failed(ctx, "book_appointment", e)
+                break  # an earlier try may still complete: judge by the hospital's state, not by this error
+            unknown_seen = True
             if attempt < 2:
                 ctx.sleep(0.5 * 2**attempt)
     appts = _lookup(ctx)  # same-key retries are the authority; this is only extra evidence
