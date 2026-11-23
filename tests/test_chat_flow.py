@@ -39,6 +39,7 @@ def hospital(**script):
     script.setdefault("doctors", [DOCTORS])
     script.setdefault("appointments", [[appt(FAR)]])
     script.setdefault("bills", [[]])
+    script.setdefault("slots", [{"free": []}])
     return FakeHospital(**script)
 
 

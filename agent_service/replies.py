@@ -50,6 +50,11 @@ HUMAN_FALLBACK = {
 }
 CONFIRM = {"en": "Reply YES to confirm.", "hinglish": "Confirm karne ke liye YES likhein.", "hi": "पुष्टि के लिए हाँ लिखें।"}
 DETAILS = {"en": "Details", "hinglish": "Details", "hi": "विवरण"}
+ALTERNATIVE = {
+    "en": "The nearest free time with the same doctor that day is {when}.",
+    "hinglish": "Usi din usi doctor ke saath sabse paas ka free time {when} hai.",
+    "hi": "उसी दिन उसी डॉक्टर के साथ सबसे नज़दीकी खाली समय {when} है।",
+}
 AFTER_FAILURE = "Please tell me how you'd like to go ahead."
 
 _REASONS = {

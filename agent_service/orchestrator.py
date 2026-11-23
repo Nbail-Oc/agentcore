@@ -22,12 +22,13 @@ from .confirm import is_confirmation
 from .context import PatientContext
 from .filters import grounded_numbers, no_medical_advice
 from .emergency import SAFETY_REPLY, UNVERIFIED_REPLY, check_emergency, has_soft_symptom
-from .hooks import write_policy
+from .hooks import when, write_policy
+from .recovery import alternative_input
 from .hospital import Hospital, HospitalError
 from .router import route_message
 from .schemas import ChatRequest, ChatResponse
 from .settings import LIGHT, SPECIALIST, SPECIALIST_MAX_SECONDS, SPECIALIST_MODEL
-from .tools import build_registry
+from .tools import build_registry, parse_start
 
 MAX_HISTORY = 30
 MAX_TURN_COST_USD = 0.25  # a runaway turn is stopped here (a normal one costs a fraction of a cent)
@@ -160,6 +161,10 @@ def _run_confirmed(pending, req, session, ctx, trace, deps, lang) -> Reply:
     if outcome and outcome["outcome"] in ("success", "unknown"):
         session["failures"], session["active_agent"] = 0, pending["agent"]
         return Reply(replies.outcome_text(outcome, lang), pending["agent"], handoff=ctx.flags["handoff"])
+    if outcome and outcome["outcome"] == "failed" and outcome.get("code") == "slot_taken":
+        proposed = _propose_alternative(pending, session, ctx, trace, lang)
+        if proposed:
+            return proposed
     # Definitely not done (the hospital said no, or a check blocked it): the agent continues with the real result.
     tool_id = "toolu_" + uuid.uuid4().hex
     messages = session["history"] + [
@@ -169,6 +174,27 @@ def _run_confirmed(pending, req, session, ctx, trace, deps, lang) -> Reply:
     ]
     lead = replies.failure_line(outcome, lang) if outcome else None
     return _run_specialist(pending["agent"], messages, session, ctx, trace, deps, lang, lead=lead, failed=True)
+
+
+def _propose_alternative(pending, session, ctx, trace, lang) -> Reply | None:
+    """After a lost race: park the same action at the nearest free time and read it back. It needs its own yes."""
+    alternative = alternative_input(pending, ctx)
+    if alternative is None:
+        return None
+    result = execute_tool_call(
+        build_registry(AGENT_TOOLS[pending["agent"]]), pending["name"], alternative, ctx, trace, _hooks(trace, pending["agent"]),
+    )
+    if result.pending is None:  # a check blocked it (things changed): the agent handles it instead
+        return None
+    p = result.pending
+    session["pending"] = {"id": uuid.uuid4().hex, "name": p.name, "input": p.input, "fingerprint": p.fingerprint,
+                          "details": p.details, "agent": pending["agent"]}
+    session["failures"], session["active_agent"] = 0, pending["agent"]
+    field = "start" if pending["name"] == "book_appointment" else "new_start"
+    nearest = replies.ALTERNATIVE[lang].format(when=when(parse_start(alternative[field])))
+    text = (f"{replies.failure_line(ctx.outcomes[-1], lang)}\n\n{nearest}\n\n"
+            f"{replies.DETAILS[lang]}: {p.details}\n{replies.CONFIRM[lang]}")
+    return Reply(text, pending["agent"], handoff=ctx.flags["handoff"])
 
 
 def _human(messages, session, ctx, trace, deps, lang) -> Reply:

@@ -1,91 +1,152 @@
 """Scenario 03 (slot taken while booking), taken apart offline against the real mock hospital.
 
-Saved chaos transcripts showed two different things going wrong:
-  runs 1 and 2: an 11:30 read-back WAS parked, the patient's final "yes" passed the word check, and a fresh read-back
-                was parked instead, so the confirmation check did not accept it (the judge's own words were not saved);
-  run 3:        the agent offered 11:30 in plain prose and parked nothing, so the "yes" had nothing to confirm.
-These tests pin what code guarantees in both situations and cover the two fixes (the judge now sees our last message to
-resolve "that one"; a taken-slot result tells the model to pick the nearest free slot and call the tool). Consent is never
-weakened: only the stored, read-back call can run, and only after a clear yes.
+Live traces of the current version showed three things:
+  - after a lost race the judge accepted the patient's first "yes" and the booking failed with slot_taken, correctly;
+  - in 2 of 3 runs the model then offered other times in prose and parked nothing, ignoring the instruction to call the
+    tool, so the patient's next "yes" had nothing to confirm;
+  - in 1 run the model asked in prose at the start, shifting everything by a turn; the judge then (correctly) refused to
+    treat "the next free time" as a yes to the 11:00 read-back.
+So recovery no longer depends on the model: after slot_taken, code proposes the nearest free time for the same doctor and
+day through the normal hooks. It is parked like any write and needs its own clear yes. Consent is never weakened.
 """
 
+from datetime import datetime
+
 from agent_service.confirm import code_check, is_confirmation
+from agent_service.hooks import when
+from agent_service.recovery import alternative_input, nearest_free_slot
+from agent_service.tools import IST, parse_start
 from agentcore.trace import Trace
 from tests.fake_claude import FakeClaude, text, tool_use
+from tests.fake_hospital import FakeHospital, _ctx, appt, definite
 from tests.test_against_mock import CLEAR, YES, appts, chat, deps, fresh_mock, mock, route  # noqa: F401
+from tests.test_chat_flow import BOOK, chat as flow_chat, deps_for, hospital
 
 PHONE = "9000000003"
 LAST_SENTENCE = "Ok, the next free time that day is fine. Yes, book that one."
 FIRST_MESSAGE = "I'm Neha Joshi. Please book Dr. Sharma on Thursday 3rd December at 11am."
+WANTED = "2026-12-03T11:00:00+05:30"
 
 
 def book(start):
     return tool_use("book_appointment", {"doctor_id": "d4", "start": start, "patient_name": "Neha Joshi"})
 
 
-def requested_slot():
-    return "2026-12-03T11:00:00+05:30"
-
-
 def next_free_slot():
     free = mock.get("/doctors/d4/slots", params={"date": "2026-12-03"}).json()["free"]
-    return next(s for s in free if s > requested_slot())
+    return nearest_free_slot([s for s in free if s != WANTED], parse_start(WANTED))
 
 
 def ask_first():
-    return [CLEAR, route("booking"), book(requested_slot()), text("Shall I book it?")]
+    return [CLEAR, route("booking"), book(WANTED), text("Shall I book it?")]
+
+
+def lost_race_turn(d):
+    mock.post("/_admin/chaos", json={"race_next": 1})
+    chat(d, FIRST_MESSAGE, PHONE)
+    return chat(d, "Yes, book it.", PHONE)
 
 
 def test_the_exact_final_sentence_passes_the_word_check():
     assert code_check(LAST_SENTENCE) is True
 
 
-def test_when_the_judge_confirms_exactly_the_proposed_alternative_is_booked_once_and_11am_never():
+def test_after_a_lost_race_code_parks_the_nearest_free_time_with_a_read_back_and_books_nothing():
     alt = next_free_slot()
-    d = deps(ask_first() + [CLEAR, YES, book(alt), text("That slot was taken. Next free is later. Confirm?"), CLEAR, YES])
-    mock.post("/_admin/chaos", json={"race_next": 1})
-    chat(d, FIRST_MESSAGE, PHONE)
-    chat(d, "Yes, book it.", PHONE)
+    d = deps(ask_first() + [CLEAR, YES])  # no model call is needed after the failed write
+
+    second = lost_race_turn(d)
+
     assert appts(PHONE) == []
+    assert second.reply.startswith("This was NOT done: that slot was just taken.")
+    assert "nearest free time" in second.reply
+    assert f"Details: Book Dr. Rahul Sharma (General Medicine) on {when(parse_start(alt))} for Neha Joshi" in second.reply
+    assert "Reply YES to confirm." in second.reply
+    assert len(d.client.messages.calls) == 6  # emergency, router, agent, then emergency and judge: nothing after the write
 
-    res = chat(d, LAST_SENTENCE, PHONE)
 
-    [booked] = appts(PHONE)
-    assert booked["start"] == alt and booked["status"] == "booked"
-    assert "booked" in res.reply.lower()
-
-
-def test_an_alternative_offered_only_in_prose_is_never_booked_by_a_later_yes():
+def test_the_patients_next_yes_books_exactly_the_proposed_time_once_and_never_the_lost_one():
     alt = next_free_slot()
-    d = deps(ask_first() + [
-        CLEAR, YES, text("The 11:00 slot was taken. The next free time is later. Shall I book it?"),  # prose only, no tool call
-        CLEAR, route("booking"), book(alt), text("Please confirm."),  # the "yes" finds nothing parked, so it is just a message
-        CLEAR, YES,
-    ])
-    mock.post("/_admin/chaos", json={"race_next": 1})
-    chat(d, FIRST_MESSAGE, PHONE)
-    chat(d, "Yes, book it.", PHONE)
+    d = deps(ask_first() + [CLEAR, YES, CLEAR, YES])
+    lost_race_turn(d)
 
     third = chat(d, LAST_SENTENCE, PHONE)
 
-    assert appts(PHONE) == []  # nothing booked on a yes that confirmed nothing
-    assert "Details:" in third.reply and "Reply YES" in third.reply  # a code-built read-back is now waiting
-    chat(d, "Yes.", PHONE)
-    assert [a["start"] for a in appts(PHONE)] == [alt]
+    [booked] = appts(PHONE)
+    assert booked["start"] == alt and booked["status"] == "booked"
+    assert "booked" in third.reply.lower()
 
 
-def test_a_taken_slot_result_tells_the_model_to_pick_the_nearest_free_slot_and_call_the_tool():
-    d = deps(ask_first() + [CLEAR, YES, text("Taken. Shall I look at another time?")])
+def test_a_reply_that_is_not_a_clear_yes_to_the_new_read_back_books_nothing():
+    d = deps(ask_first() + [CLEAR, YES, CLEAR, route("booking"), text("Which time would you like instead?")])
+    lost_race_turn(d)
+
+    chat(d, "Hmm, what about the afternoon? Yes?", PHONE)
+
+    assert appts(PHONE) == []
+
+
+def test_a_lost_reschedule_race_proposes_the_nearest_free_time_for_the_same_appointment():
+    free = mock.get("/doctors/d5/slots", params={"date": "2026-12-05"}).json()["free"]
+    wanted = next(s for s in free if s[11:13] < "13")
+    ask = [CLEAR, route("booking"), tool_use("reschedule_appointment", {"appointment_id": "A1003", "new_start": wanted}), text("Move it?")]
+    d = deps(ask + [CLEAR, YES])
+    chat(d, "Move my appointment with Dr. Khan to Saturday morning", "9988776655")
     mock.post("/_admin/chaos", json={"race_next": 1})
-    chat(d, FIRST_MESSAGE, PHONE)
-    chat(d, "Yes, book it.", PHONE)
+
+    res = chat(d, "Yes, move it.", "9988776655")
+
+    expected = nearest_free_slot([s for s in free if s != wanted], parse_start(wanted))
+    assert res.reply.startswith("This was NOT done") and f"to {when(parse_start(expected))}" in res.reply
+    assert [a["start"] for a in appts("9988776655")] == ["2026-12-03T17:30:00+05:30"]  # not moved yet
+
+
+# ---------------------------------------------------------------- picking the alternative
+
+def test_the_nearest_free_time_wins_and_a_later_one_wins_a_tie():
+    wanted = datetime(2026, 12, 3, 11, 0, tzinfo=IST)
+
+    assert nearest_free_slot(["2026-12-03T10:30:00+05:30", "2026-12-03T11:30:00+05:30"], wanted) == "2026-12-03T11:30:00+05:30"
+    assert nearest_free_slot(["2026-12-03T10:00:00+05:30", "2026-12-03T12:30:00+05:30"], wanted) == "2026-12-03T10:00:00+05:30"
+    assert nearest_free_slot(["2026-12-03T10:30:00+05:30", "2026-12-03T13:00:00+05:30"], wanted) == "2026-12-03T10:30:00+05:30"
+    assert nearest_free_slot([], wanted) is None
+
+
+def test_no_alternative_is_proposed_for_other_failures_or_when_nothing_is_free():
+    ctx = _ctx(FakeHospital(slots=[{"free": []}]))
+    pending = {"name": "book_appointment", "input": {"doctor_id": "d5", "start": "2026-12-03T11:00:00+05:30", "patient_name": "N"}}
+
+    assert alternative_input(pending, ctx) is None
+    assert alternative_input({"name": "cancel_appointment", "input": {"appointment_id": "A1"}}, ctx) is None
+
+
+# ---------------------------------------------------------------- the model path still exists when code finds nothing
+
+def test_with_no_free_time_left_the_agent_continues_and_is_told_to_pick_one_and_call_the_tool():
+    hosp = hospital(book=[definite("slot_taken")])  # no free slots on that day
+    d = deps_for([CLEAR, route("booking"), BOOK, text("Confirm?"), CLEAR, YES, text("Sorry, nothing is free that day.")], hosp)
+    flow_chat(d, "book Dr Khan Saturday 10am, I'm Sameer Kulkarni")
+
+    res = flow_chat(d, "Yes, book it.")
 
     continuation = d.client.messages.calls[-1]["messages"][-1]["content"][0]["content"]
-
-    assert "slot_taken" in continuation
     assert "free_slots" in continuation and "nearest free" in continuation.lower()
-    assert "do not ask the patient to choose" in continuation.lower()
+    assert res.reply.startswith("This was NOT done") and res.reply.endswith("Sorry, nothing is free that day.")
 
+
+def test_a_yes_after_an_offer_made_only_in_prose_books_nothing():
+    hosp = hospital(book=[definite("slot_taken")])
+    d = deps_for([CLEAR, route("booking"), BOOK, text("Confirm?"), CLEAR, YES, text("Shall I book 11:30 instead?"),
+                  CLEAR, route("booking"), BOOK, text("Please confirm.")], hosp)
+    flow_chat(d, "book Dr Khan Saturday 10am, I'm Sameer Kulkarni")
+    flow_chat(d, "Yes, book it.")
+
+    flow_chat(d, "Yes, book that one.")
+
+    assert [c[0] for c in hosp.calls if c[0] == "book"] == ["book"]  # only the one that failed
+
+
+# ---------------------------------------------------------------- the judge sees what "that one" refers to
 
 def _judge_content(previous_reply):
     fake = FakeClaude([text('{"decision": "confirm"}')])
@@ -99,7 +160,7 @@ def test_the_judge_sees_our_last_message_only_as_context_and_the_read_back_stays
 
     assert "next free time is 11:30" in content
     assert "context only" in content.lower() and "authoritative" in content.lower()
-    assert content.index("authoritative") < content.index("context only")  # the read-back comes first
+    assert content.index("authoritative") < content.index("context only")
 
 
 def test_our_last_message_cannot_close_the_tags_around_patient_text_and_is_cut_short():
@@ -114,14 +175,11 @@ def test_without_a_last_message_the_judge_request_is_unchanged():
 
 
 def test_the_orchestrator_hands_the_judge_the_agents_last_message():
-    alt = next_free_slot()
-    d = deps(ask_first() + [CLEAR, YES, book(alt), text("Taken. The next free time is later. Confirm?"), CLEAR, YES])
-    mock.post("/_admin/chaos", json={"race_next": 1})
-    chat(d, FIRST_MESSAGE, PHONE)
-    chat(d, "Yes, book it.", PHONE)
+    d = deps(ask_first() + [CLEAR, YES, CLEAR, YES])
+    lost_race_turn(d)
     chat(d, LAST_SENTENCE, PHONE)
 
     judge_requests = [c["messages"][-1]["content"] for c in d.client.messages.calls if "<patient_reply>" in str(c["messages"][-1]["content"])]
 
     assert len(judge_requests) == 2
-    assert "Taken. The next free time is later" in judge_requests[1]  # turn 3: the message the patient was answering
+    assert "nearest free time" in judge_requests[1]  # turn 3: the message the patient was answering
