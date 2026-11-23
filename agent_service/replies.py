@@ -26,9 +26,12 @@ def detect_language(message: str) -> str:
 LEAD = {"en": "Done!", "hinglish": "Ho gaya!", "hi": "हो गया!"}
 NOT_DONE = {"en": "This was NOT done", "hinglish": "Yeh NAHI hua", "hi": "यह नहीं हो पाया"}
 UNKNOWN = {
-    "en": "I couldn't confirm whether this went through, so please don't assume it did. Our staff will check and contact you.",
-    "hinglish": "Mujhe confirm nahi ho paya ki yeh hua ya nahi, isliye ise pura na maanein. Hamara staff check karke aapko batayega.",
-    "hi": "मैं पुष्टि नहीं कर पाया कि यह हुआ या नहीं, कृपया इसे पूरा न मानें। हमारा स्टाफ जाँच कर आपसे संपर्क करेगा।",
+    "en": "I couldn't confirm whether this went through, so please don't assume it did. I've flagged this chat for hospital staff. "
+          "To check sooner, call the front desk on 020-4000-1234 (Mon to Sat, 9am to 8pm).",
+    "hinglish": "Mujhe confirm nahi ho paya ki yeh hua ya nahi, isliye ise pura na maanein. Maine yeh chat hospital staff ke liye flag kar di hai. "
+                "Jaldi check karne ke liye front desk ko 020-4000-1234 par call karein (Mon-Sat, 9am-8pm).",
+    "hi": "मैं पुष्टि नहीं कर पाया कि यह हुआ या नहीं, कृपया इसे पूरा न मानें। मैंने यह चैट अस्पताल स्टाफ के लिए चिह्नित कर दी है। "
+          "जल्दी जाँच के लिए फ्रंट डेस्क को 020-4000-1234 पर कॉल करें (सोम से शनि, सुबह 9 से रात 8)।",
 }
 RETRY = {
     "en": "Sorry, I'm having trouble right now. Please try again in a moment.",
@@ -36,14 +39,14 @@ RETRY = {
     "hi": "क्षमा करें, अभी समस्या आ रही है। कृपया थोड़ी देर में फिर कोशिश करें।",
 }
 HANDOFF = {
-    "en": "Sorry, I'm still having trouble. I'm handing this chat to our staff, who will reply soon.",
-    "hinglish": "Maaf kijiye, abhi bhi dikkat hai. Main yeh chat hamare staff ko de raha hoon, woh jaldi reply karenge.",
-    "hi": "क्षमा करें, अभी भी समस्या है। मैं यह चैट हमारे स्टाफ को दे रहा हूँ, वे जल्द जवाब देंगे।",
+    "en": "Sorry, I'm still having trouble. I've flagged this chat for hospital staff. You can also call the front desk on 020-4000-1234 (Mon to Sat, 9am to 8pm).",
+    "hinglish": "Maaf kijiye, abhi bhi dikkat hai. Maine yeh chat hospital staff ke liye flag kar di hai. Aap front desk ko 020-4000-1234 par bhi call kar sakte hain (Mon-Sat, 9am-8pm).",
+    "hi": "क्षमा करें, अभी भी समस्या है। मैंने यह चैट अस्पताल स्टाफ के लिए चिह्नित कर दी है। आप फ्रंट डेस्क को 020-4000-1234 पर भी कॉल कर सकते हैं (सोम से शनि, सुबह 9 से रात 8)।",
 }
 HUMAN_FALLBACK = {
-    "en": "I'm connecting you with our staff, who will reply soon.",
-    "hinglish": "Main aapko hamare staff se jod raha hoon, woh jaldi reply karenge.",
-    "hi": "मैं आपको हमारे स्टाफ से जोड़ रहा हूँ, वे जल्द जवाब देंगे।",
+    "en": "I've flagged this chat for hospital staff. If it's urgent, please call the front desk on 020-4000-1234 (Mon to Sat, 9am to 8pm).",
+    "hinglish": "Maine yeh chat hospital staff ke liye flag kar di hai. Zaroori ho to front desk ko 020-4000-1234 par call karein (Mon-Sat, 9am-8pm).",
+    "hi": "मैंने यह चैट अस्पताल स्टाफ के लिए चिह्नित कर दी है। ज़रूरी हो तो फ्रंट डेस्क को 020-4000-1234 पर कॉल करें (सोम से शनि, सुबह 9 से रात 8)।",
 }
 CONFIRM = {"en": "Reply YES to confirm.", "hinglish": "Confirm karne ke liye YES likhein.", "hi": "पुष्टि के लिए हाँ लिखें।"}
 DETAILS = {"en": "Details", "hinglish": "Details", "hi": "विवरण"}

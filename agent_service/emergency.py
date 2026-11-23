@@ -19,15 +19,15 @@ from .settings import LIGHT, ROUTER_MODEL
 
 SAFETY_REPLY = (
     "This sounds like an emergency. Please call 108 now or go to the nearest emergency room. "
-    "City Care's Emergency department (12 MG Road, Camp, Pune) is open 24 hours. I am alerting our staff.\n\n"
+    "City Care's Emergency department (12 MG Road, Camp, Pune) is open 24 hours. I have flagged this chat for our staff, but please do not wait for a reply.\n\n"
     "यह आपातकाल लग रहा है। कृपया अभी 108 पर कॉल करें या नज़दीकी इमरजेंसी रूम में जाएँ। "
-    "सिटी केयर का इमरजेंसी विभाग 24 घंटे खुला है। हम अपने स्टाफ को सूचित कर रहे हैं।"
+    "सिटी केयर का इमरजेंसी विभाग 24 घंटे खुला है। मैंने यह चैट स्टाफ के लिए चिह्नित कर दी है, पर कृपया जवाब का इंतज़ार न करें।"
 )
 UNVERIFIED_REPLY = (
     "If this is an emergency, please call 108 now or go to the nearest emergency room "
-    "(City Care's is open 24 hours). We could not check your message just now, so our staff will follow up with you.\n\n"
+    "(City Care's is open 24 hours). We could not check your message just now, so I have flagged this chat for our staff.\n\n"
     "अगर यह आपातकाल है तो अभी 108 पर कॉल करें या नज़दीकी इमरजेंसी रूम जाएँ। "
-    "हम आपका संदेश जाँच नहीं पाए, हमारा स्टाफ आपसे संपर्क करेगा।"
+    "हम आपका संदेश जाँच नहीं पाए, मैंने यह चैट स्टाफ के लिए चिह्नित कर दी है।"
 )
 
 

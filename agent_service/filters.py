@@ -13,7 +13,7 @@ from agentcore.model import response_text
 
 from .agents import HOSPITAL_INFO
 
-SAFE_UNKNOWN_REPLY = "I don't have that information. Our staff can help: would you like me to connect you with them?"
+SAFE_UNKNOWN_REPLY = "I don't have that information. Please call the front desk on 020-4000-1234 (Mon to Sat, 9am to 8pm) and they can help."
 SAFE_ADVICE_REPLY = "I can't give medical advice, but I can book you with a doctor. Would you like that?"
 
 _AMOUNT = re.compile(r"(?:rs\.?|inr|₹)\s?(\d[\d,]*)|(\d[\d,]*)\s?(?:rupees|rs\b)", re.IGNORECASE)

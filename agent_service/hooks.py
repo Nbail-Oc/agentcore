@@ -55,7 +55,7 @@ def _policy(call: ToolCall, ctx: PatientContext):
         if current - now < FOUR_HOURS:
             ctx.flags["handoff"] = True
             return Block("This appointment is less than 4 hours away (or has started), so it cannot be changed in chat. "
-                         "Tell the patient hospital staff will take over; this chat is being handed to staff.")
+                         "Tell the patient it needs hospital staff, that you have flagged the chat for them (promise no reply time), and that they can call the front desk on 020-4000-1234.")
         doctor = ctx.doctor(appt["doctor_id"])["name"]
         if call.name == "cancel_appointment":
             details = f"Cancel appointment {appt['id']} with {doctor} on {when(current)}"

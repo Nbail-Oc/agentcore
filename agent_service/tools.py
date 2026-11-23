@@ -113,7 +113,7 @@ def _record(ctx: PatientContext, tool: str, outcome: str, **extra: Any) -> dict:
     result = {"tool": tool, "outcome": outcome, **extra}
     if outcome == "unknown":
         ctx.flags["handoff"] = True
-        result["instruction"] = "Do NOT tell the patient it happened. Say it could not be confirmed and staff will check."
+        result["instruction"] = "Do NOT tell the patient it happened. Say it could not be confirmed and that the chat is flagged for hospital staff (promise no reply time)."
     ctx.outcomes.append(result)
     return result
 
