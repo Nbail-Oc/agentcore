@@ -6,9 +6,9 @@ from pydantic import BaseModel, Field
 
 
 class ChatRequest(BaseModel):
-    session_id: str = Field(min_length=1, description="One WhatsApp conversation")
-    phone: str = Field(description="The patient's verified WhatsApp number, 10 digits. Trust this, not what they type.")
-    message: str = Field(min_length=1)
+    session_id: str = Field(min_length=1, max_length=100, description="One WhatsApp conversation")
+    phone: str = Field(pattern=r"^[6-9]\d{9}$", description="The patient's verified WhatsApp number, 10 digits. Trust this, not what they type.")
+    message: str = Field(min_length=1, max_length=2000)
 
 
 AgentName = Literal["booking", "billing", "info", "human", "safety", "naive"]
