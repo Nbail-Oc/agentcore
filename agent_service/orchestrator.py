@@ -172,7 +172,8 @@ def _run_confirmed(pending, req, session, ctx, trace, deps, lang) -> Reply:
 def _human(messages, session, ctx, trace, deps, lang) -> Reply:
     result = run_agent(
         client=deps.client, model=SPECIALIST_MODEL, system=system_prompt("human", None), registry=build_registry([]),
-        messages=messages, ctx=ctx, trace=trace, config=replace(SPECIALIST, sleep=deps.sleep), max_tokens=150,
+        messages=messages, ctx=ctx, trace=trace, hooks=_hooks(trace, "human"),
+        config=replace(SPECIALIST, sleep=deps.sleep), max_tokens=150,
     )
     text = result.text.strip() if result.status == "done" and result.text.strip() else replies.HUMAN_FALLBACK[lang]
     session["failures"] = 0

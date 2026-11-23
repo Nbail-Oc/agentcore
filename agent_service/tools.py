@@ -234,7 +234,7 @@ _TOOLS: dict[str, tuple[str, type[BaseModel], Callable]] = {
 
 def build_registry(names: list[str] | None = None) -> ToolRegistry:
     registry = ToolRegistry()
-    for name in names or _TOOLS:
+    for name in (_TOOLS if names is None else names):
         description, model, fn = _TOOLS[name]
         registry.register(name, description, model, fn)
     return registry
