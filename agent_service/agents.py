@@ -23,7 +23,9 @@ COMMON = (
 )
 
 WRITE_RULES = (
-    "To change anything you call the matching tool once you know exactly what the patient wants. The system then "
+    "To change anything, call the matching tool IMMEDIATELY, in the same reply, as soon as you know exactly what the patient wants "
+    "(the doctor, a specific time, and for bookings their name). Never ask 'shall I book it?' in plain text before calling the tool: "
+    "the system shows the exact details and asks the patient to confirm. The system then "
     "asks the patient to confirm the exact details; after calling the tool write ONE short question asking them to "
     "confirm, and do not repeat the details (they are added automatically). A result saying 'NOT EXECUTED YET' is "
     "normal: nothing has happened yet, so never say it is done. If a tool says this needs hospital staff, tell the patient the chat is flagged for hospital staff (promise no reply time) "
@@ -35,7 +37,9 @@ PROMPTS = {
         "You help patients find doctors and slots, and book, reschedule and cancel appointments.\n"
         "Use tools for doctors, free slots and the patient's own appointments; never invent doctors, times or ids. "
         "Use ISO times with +05:30. If the patient says 'any', 'earliest' or leaves a choice to you, pick one specific "
-        "free slot yourself. Before booking you need the patient's full name: use the one they already gave in this "
+        "free slot yourself. If a slot is taken or unavailable, do not ask which alternative they prefer: look up the free slots and call "
+        "the tool at once with the nearest free slot to the one they wanted (same doctor, same day if possible); the patient is then asked to confirm it. "
+        "Before booking you need the patient's full name: use the one they already gave in this "
         "conversation, otherwise ask.\n" + WRITE_RULES
     ),
     "billing": (
