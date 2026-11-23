@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from pydantic import BaseModel, ValidationError
-from pydantic_core import to_json
+from pydantic_core import PydanticSerializationError, to_json
 
 log = logging.getLogger(__name__)
 
@@ -67,7 +67,15 @@ class ToolRegistry:
             output = tool.fn(args, ctx)
         except ToolError as e:
             return ToolResult(str(e), True)
-        except Exception:
-            log.exception("tool %s failed unexpectedly", name)
+        except Exception as e:
+            # Type only: exception text and tracebacks can carry patient data or secrets.
+            log.error("tool %s failed unexpectedly: %s", name, type(e).__name__)
             return ToolResult("The tool failed unexpectedly.", True)
-        return ToolResult(output if isinstance(output, str) else to_json(output, fallback=str).decode())
+        if isinstance(output, str):
+            return ToolResult(output)
+        try:
+            return ToolResult(to_json(output).decode())
+        except PydanticSerializationError as e:
+            # No fallback=str: it would put the repr of arbitrary objects in front of the model.
+            log.error("tool %s returned an unserializable result: %s", name, type(e).__name__)
+            return ToolResult("The tool returned a result that could not be converted to JSON.", True)

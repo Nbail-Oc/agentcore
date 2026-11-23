@@ -71,3 +71,47 @@ def test_tool_error_is_sent_to_the_model_as_an_error_result():
     [tool_result] = fake.messages.calls[1]["messages"][-1]["content"]
     assert tool_result["is_error"] is True
     assert tool_result["content"].startswith("Invalid input")
+
+
+def test_step_limit_stops_the_loop_and_skips_the_last_tool_calls():
+    calls = []
+    reg = ToolRegistry()
+    reg.register("add", "Add.", AddIn, lambda args, ctx: calls.append(args) or 1)
+    fake = FakeClaude([tool_use("add", {"a": 1, "b": 1}) for _ in range(5)])
+
+    result = run_agent(client=fake, model="m", system="s", registry=reg,
+                       messages=[{"role": "user", "content": "hi"}], max_steps=3)
+
+    assert result.status == "step_limit"
+    assert len(fake.messages.calls) == 3
+    assert len(calls) == 2  # the 3rd response asked for a tool, but the limit was reached
+
+
+def test_normal_reply_has_status_done():
+    assert _run(FakeClaude([text("ok")])).status == "done"
+
+
+def test_stop_reasons_map_to_statuses():
+    cases = {
+        "max_tokens": "max_tokens",
+        "refusal": "refusal",
+        "model_context_window_exceeded": "context_exceeded",
+        "stop_sequence": "done",
+    }
+    for stop_reason, status in cases.items():
+        assert _run(FakeClaude([text("x", stop_reason=stop_reason)])).status == status, stop_reason
+
+
+def test_unknown_stop_reason_is_not_treated_as_done():
+    fake = FakeClaude([text("x").model_copy(update={"stop_reason": "brand_new_reason"})])
+
+    assert _run(fake).status == "unexpected_stop"
+
+
+def test_pause_turn_resumes_with_the_same_conversation():
+    fake = FakeClaude([text("working...", stop_reason="pause_turn"), text("done")])
+
+    result = _run(fake)
+
+    assert (result.status, result.text) == ("done", "done")
+    assert fake.messages.calls[1]["messages"][-1]["role"] == "assistant"

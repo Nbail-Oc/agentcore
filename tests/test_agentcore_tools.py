@@ -94,3 +94,24 @@ def test_unexpected_exception_does_not_leak_internals():
 
     assert result.is_error
     assert "hunter2" not in result.content
+
+
+def test_unserializable_result_becomes_a_generic_error():
+    reg, _ = _registry(lambda args, ctx: object())
+
+    result = reg.execute("add", {"a": 1, "b": 2}, ctx=None)
+
+    assert result.is_error
+    assert "object at" not in result.content
+
+
+def test_unexpected_exception_message_is_not_logged(caplog):
+    def fn(args, ctx):
+        raise RuntimeError("db password is hunter2")
+
+    reg, _ = _registry(fn)
+
+    reg.execute("add", {"a": 1, "b": 2}, ctx=None)
+
+    assert "hunter2" not in caplog.text
+    assert "RuntimeError" in caplog.text
