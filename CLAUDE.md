@@ -72,6 +72,9 @@ Build a reusable, hospital-independent Python agent runtime and specialist agent
 - Do not modify `mock_hospital/`, the 10 supplied scenarios, or existing eval-check behavior. Do not use agent frameworks or the SDK tool runner.
 - Use the verified request phone for identity; require a specific read-back and clear confirmation for writes. Check emergencies before routing and use the hospital clock for the four-hour rule.
 - Keep `agentcore/` independent of hospital code. Test safety and failure paths with the fake client; keep tests runnable without an API key.
+- Treat each write's retry and recovery semantics separately. Confirm outcomes from available hospital state; do not infer success from a failed or ambiguous response.
+- Bind session state and tool access to the verified phone; consider concurrent requests and prevent cross-patient data leakage.
+- Distinguish code findings from hypotheses and measured results. Do not claim an eval passed or a failure occurs without evidence; preserve time for the mandatory router, specialists, three chaos runs and hand-in.
 - Never expose or commit secrets. Work in small, verified increments and explain material trade-offs and failures.
 
 ## Context and references

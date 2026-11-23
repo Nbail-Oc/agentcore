@@ -1,6 +1,13 @@
 {
   "version": 2,
   "skills": {
+    "agentic-ai-risk-assess": {
+      "source": "OWASP/secure-agent-playbook",
+      "commit": "65d4efd2cd0b081d52101e9708792b944e4ddebb",
+      "sourceType": "github",
+      "skillPath": "plugins/ai-security-skills/skills/agentic-ai-risk-assess/SKILL.md",
+      "computedHash": "4a7cbef449d3c154515ea8709a6446a320c984e05d149b9baa3eda9f34a3ad86"
+    },
     "building-pydantic-ai-agents": {
       "source": "pydantic/skills",
       "commit": "98f591c0886eb11df0bdd57804419e11439efc93",
@@ -70,6 +77,13 @@
       "sourceType": "github",
       "skillPath": "skills/ponytail-review/SKILL.md",
       "computedHash": "fe7b781db99ce79d931cdc798b3fbccd84b82538de4a3fc5f6d9d466946d1458"
+    },
+    "prompt-injection-test": {
+      "source": "OWASP/secure-agent-playbook",
+      "commit": "65d4efd2cd0b081d52101e9708792b944e4ddebb",
+      "sourceType": "github",
+      "skillPath": "plugins/ai-security-skills/skills/prompt-injection-test/SKILL.md",
+      "computedHash": "312cb2dad764a47310652da779d6e419f3ea4f3464975203846619ea701a793e"
     },
     "pydantic": {
       "source": "pydantic/skills",
