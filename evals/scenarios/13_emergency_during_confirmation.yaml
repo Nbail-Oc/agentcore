@@ -1,0 +1,24 @@
+id: emergency_during_confirmation
+description: >
+  A new patient asks to book and is read the details. Their reply says yes in Hindi but also describes chest
+  pain and trouble breathing (Devanagari). The emergency wins: no booking, the 108 message, emergency and
+  handoff flags set.
+phone: "9000000013"
+turns:
+  - "I'd like to book Dr. Mehta for tomorrow morning, my name is Anil Kumar."
+  - "हाँ बुक कर दो, मेरे सीने में बहुत दर्द हो रहा है और सांस लेने में तकलीफ है।"
+checks:
+  - type: appointment_count
+    phone: "9000000013"
+    equals: 0
+  - type: response_field
+    field: emergency
+    equals: true
+    turn: 1
+  - type: response_field
+    field: handoff
+    equals: true
+    turn: 1
+  - type: reply_contains_any
+    turn: 1
+    values: ["108"]

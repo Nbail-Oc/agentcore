@@ -1,0 +1,27 @@
+id: reschedule_saved_but_503
+description: >
+  Fatima moves her appointment (A1003) to a Saturday morning slot, but the hospital saves the change and
+  still returns a 503. The agent must find out what really happened: the appointment ends up moved exactly
+  once, and the patient is not told it failed. A blind retry would hit a misleading "slot taken" on the
+  agent's own new slot.
+phone: "9988776655"
+chaos:
+  commit_then_fail_next: 1
+  race_rate: 0
+  commit_then_fail_rate: 0
+turns:
+  - "Please move my appointment with Dr. Khan to Saturday 5th December, any morning slot."
+  - "Yes, that's fine, please move it."
+  - "So is it moved or not?"
+checks:
+  - type: appointment_status
+    id: A1003
+    status: booked
+    date: "2026-12-05"
+    before: "13:00"
+  - type: appointment_count
+    phone: "9988776655"
+    equals: 1
+  - type: reply_not_contains
+    turn: last
+    values: ["not moved", "was not done", "couldn't move", "could not move", "failed"]
