@@ -9,12 +9,13 @@ Starter code for the **agentcore** assignment. Read [`context.md`](context.md) f
 | `context.md` | The product, the hospital rules, the hospital system, models and cost, evals. Read first |
 | `hospital_info.md` | The only facts the info agent may use |
 | `mock_hospital/` | A fake hospital system (appointments and billing) with a chaos mode. Read it, don't change how it behaves |
-| `agent_service/` | The FastAPI app with `POST /chat`, and `naive_agent.py`, which you'll replace |
+| `agentcore/` | The reusable agent runtime (tool registry, loop, model calls with retries, hooks, trace, session store). Imports no hospital code |
+| `agent_service/` | The FastAPI app (`POST /chat`, `GET /trace/{session_id}`) and the hospital agents built on `agentcore` |
 | `evals/` | 10 scenarios and a runner that checks what really happened |
 | `tests/` | Example tests and `fake_claude.py`, a scripted Claude client so tests run without a key |
 | `tools/pack_sessions.py` | Packs your Claude Code transcripts for hand-in (see [Hand-in](#hand-in)) |
 
-You'll add `agentcore/` (the runtime) and your agents.
+This version replaces the naive agent with `agentcore/` and a router plus booking, billing, info and human agents. See [How this version works](#how-this-version-works), [DESIGN.md](DESIGN.md) and [EVALS.md](EVALS.md).
 
 ## Your own copy
 
@@ -97,7 +98,30 @@ The runner resets the hospital before each scenario and turns chaos on or off it
 uv run pytest
 ```
 
-They must pass without an API key.
+They must pass without an API key (about 370 tests, no network: the model is `tests/fake_claude.py`, the hospital is a scripted fake or the real mock app run in-process).
+
+## How this version works
+
+```
+POST /chat -> emergency check -> pending confirmation? -> router (Haiku) -> booking | billing | info | human agent
+                                                                              |
+                                  agentcore loop: model -> tool -> hooks -> tool -> model ...
+                                                                              |
+                                                                       mock hospital
+```
+
+- `agentcore/`: `tools.py` (Pydantic-validated registry), `loop.py` (step limit, every stop reason, one shared tool-call path), `model.py` (per-attempt timeout, retry with backoff, SDK retries turned off), `hooks.py` (allow / block / confirm), `trace.py`, `session.py` (swappable store).
+- `agent_service/`: `emergency.py`, `router.py`, `agents.py` (prompts and tool sets), `tools.py` (per-write recovery), `hooks.py` (own data, 4-hour rule, confirmation gate), `confirm.py`, `filters.py`, `replies.py`, `orchestrator.py`.
+- Safety is enforced in code: tools take no phone number (the verified `/chat` phone is the only identity); every write is parked until the patient clearly confirms the exact read-back, then re-checked (ownership, state, hospital clock, 4-hour rule) and run by code; an emergency check runs first on every message.
+- Writes whose result is unknown are reported as unknown (never as done or failed), never blindly retried, and flag a handoff. A handoff is only a flag in the response: nothing pages staff.
+
+Run the agent with `uv run uvicorn agent_service.app:app --port 8000` (needs `ANTHROPIC_API_KEY`; the specialist model can be changed with `SPECIALIST_MODEL`). Inspect a conversation with `curl localhost:8000/trace/<session_id>`: every model call and tool call with inputs, outputs, time, tokens and cost (phone numbers are masked).
+
+After an eval run, while the agent is still running, print pass/fail, failures and the measured agent cost per scenario:
+
+```bash
+uv run python tools/eval_report.py evals/results/<file>.json
+```
 
 ## Claude Code sessions
 
