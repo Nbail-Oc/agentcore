@@ -2,7 +2,7 @@
 
 import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 import anthropic
@@ -18,6 +18,7 @@ class CallConfig:
     base_delay_s: float = 1.0
     max_delay_s: float = 20.0
     jitter: bool = True
+    params: dict = field(default_factory=dict)  # extra request parameters, e.g. {"thinking": {"type": "disabled"}}
     sleep: Callable[[float], None] = time.sleep  # tests replace these two
     clock: Callable[[], float] = time.monotonic
 
@@ -97,7 +98,7 @@ def call_model(
         try:
             response = api.messages.create(
                 model=model, max_tokens=max_tokens, system=system, tools=tools, messages=messages,
-                timeout=min(config.timeout_s, remaining),
+                timeout=min(config.timeout_s, remaining), **config.params,
             )
         except anthropic.APIError as e:
             status = getattr(e, "status_code", None)

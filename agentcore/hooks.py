@@ -14,10 +14,13 @@ first decision that is not Allow wins.
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from pydantic import BaseModel
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -70,8 +73,13 @@ class Hooks:
 
 
 def first_decision(hooks: list[Callable], *args: Any) -> Allow | Block | Confirm:
+    """A hook that crashes blocks the call (fail closed). Only the exception type is logged."""
     for hook in hooks:
-        decision = hook(*args)
+        try:
+            decision = hook(*args)
+        except Exception as e:
+            log.error("hook %s crashed: %s", getattr(hook, "__name__", "hook"), type(e).__name__)
+            return Block("A safety check failed, so this was not done.")
         if isinstance(decision, (Block, Confirm)):
             return decision
     return Allow()

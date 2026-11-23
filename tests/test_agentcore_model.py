@@ -240,3 +240,11 @@ def test_loop_stops_with_timeout_when_the_run_budget_is_used_up():
 
     assert result.status == "timeout"
     assert len(fake.messages.calls) == 1
+
+
+def test_extra_request_params_are_passed_to_the_sdk():
+    fake, t = FakeClaude([text("ok")]), FakeTime()
+
+    _call(fake, t, params={"thinking": {"type": "disabled"}})
+
+    assert fake.messages.calls[0]["thinking"] == {"type": "disabled"}

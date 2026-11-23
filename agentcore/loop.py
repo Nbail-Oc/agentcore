@@ -1,5 +1,6 @@
 """The agent loop: ask the model, run the tools it asks for, send results back, repeat."""
 
+import logging
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -8,6 +9,8 @@ from .hooks import Block, Confirm, Hooks, PendingCall, ToolCall, first_decision
 from .model import CallConfig, ModelCallError, call_model, response_text
 from .tools import ToolRegistry, ToolResult
 from .trace import Span, Trace
+
+log = logging.getLogger(__name__)
 
 # Anything not listed here (and not tool_use / pause_turn) becomes "unexpected_stop".
 STATUS_FOR_STOP_REASON = {
@@ -60,7 +63,10 @@ def execute_tool_call(
         else:
             result = registry.run(tool, args, ctx)
             for hook in hooks.after_tool:
-                result = hook(call, result, ctx) or result
+                try:
+                    result = hook(call, result, ctx) or result
+                except Exception as e:  # keep the real result; a crashing hook must not hide a write's outcome
+                    log.error("after_tool hook crashed: %s", type(e).__name__)
     trace.add(Span("tool", name, raw_input, result.content, time.perf_counter() - started, is_error=result.is_error))
     return result
 

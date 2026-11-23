@@ -189,3 +189,41 @@ def test_after_model_block_replaces_the_reply_and_drops_its_tool_calls():
 
     assert (result.status, result.text) == ("blocked", "I can't say that")
     assert ran == []
+
+
+def test_a_before_tool_hook_that_crashes_blocks_the_call():
+    ran = []
+
+    def broken(call, ctx):
+        raise RuntimeError("secret internal detail")
+
+    fake = FakeClaude([tool_use("add", {"a": 1, "b": 1}), text("ok")])
+
+    result = _run(fake, ran, Hooks(before_tool=[broken]))
+
+    assert ran == []
+    [tr] = _tool_results(fake)
+    assert tr["is_error"] is True and "secret" not in tr["content"]
+    assert "secret" not in repr(result.trace.spans)
+
+
+def test_a_before_model_hook_that_crashes_stops_the_run():
+    def broken(request, ctx):
+        raise RuntimeError("secret")
+
+    fake = FakeClaude([text("never")])
+
+    result = _run(fake, [], Hooks(before_model=[broken]))
+
+    assert result.status == "blocked" and fake.messages.calls == []
+
+
+def test_an_after_tool_hook_that_crashes_keeps_the_tool_result():
+    def broken(call, result, ctx):
+        raise RuntimeError("secret")
+
+    fake = FakeClaude([tool_use("add", {"a": 1, "b": 1}), text("ok")])
+
+    _run(fake, [], Hooks(after_tool=[broken]))
+
+    assert _tool_results(fake)[0]["content"] == "2"
