@@ -36,6 +36,13 @@
       "skillPath": "fastapi-python/SKILL.md",
       "computedHash": "dcd375a6d6b3874ad5a11237399a20c851e6b221dee5dd3ad52a7d67bb3e53e8"
     },
+    "handoff": {
+      "source": "mattpocock/skills",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/handoff/SKILL.md",
+      "computedHash": "f60a2c3688379b7a306b3a7b8dd4120eab39da44c74fa2cb62d6424935f04aa7"
+    },
     "ponytail": {
       "source": "DietrichGebert/ponytail",
       "commit": "ebd8654c2c627f721eb8f9c0d1bd4090a29f9e10",

@@ -1,4 +1,7 @@
 {
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE": "1"
+  },
   "enabledPlugins": {
     "ai-security-skills@agent-security-playbook": true,
     "code-security-skills@agent-security-playbook": true
