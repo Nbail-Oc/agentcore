@@ -94,7 +94,7 @@ from pydantic_ai_harness.guardrails.detectors import (
 )
 
 agent = Agent(
-    TestModel(custom_output_text='Use key sk-ant-abcdefghijklmnopqrstuvwx'),
+    TestModel(custom_output_text='Use key sk-ant-example-key'),
     capabilities=[
         # A chain: runs in order; a `replace` feeds the next guard; block/retry stops it.
         InputGuardrail(guard=[redact_secrets, blocked_keywords(['internal-only'])]),

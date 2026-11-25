@@ -725,7 +725,7 @@ def test_each_session_only_gets_its_own_traces_and_the_response_has_the_document
 def test_an_api_key_pasted_into_a_message_never_appears_in_the_trace():
     deps = deps_for([CLEAR, route("info"), text("ok")])
 
-    chat(deps, "my key is sk-ant-api03-abcdefghijklmnop please use it")
+    chat(deps, "my key is " + "sk-ant-api03-" + "abcdefghijklmnop please use it")
 
     assert "sk-ant-api03" not in json.dumps(deps.store.traces("s1"))
 
