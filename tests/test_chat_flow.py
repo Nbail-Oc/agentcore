@@ -782,3 +782,20 @@ def test_a_write_with_an_unknown_outcome_also_sets_handoff_without_promising_any
     res = chat(deps, "Yes, cancel it.")
 
     assert res.handoff is True and not PROMISES.search(res.reply) and "flagged" in res.reply
+
+
+# ---------------------------------------------------------------- a status question after a success
+
+def test_a_status_question_after_a_booking_never_gets_nothing_has_happened_and_authorizes_nothing():
+    hosp = hospital(book=[appt(NEW, id="A2001")], appointments=[[]])
+    other = tool_use("book_appointment", {"doctor_id": "d3", "start": NEW, "patient_name": "Sameer Kulkarni"})
+    deps = deps_for([CLEAR, route("booking"), BOOK, text("Book it?"), CLEAR, YES,
+                     CLEAR, route("booking"), other, text("Booked!")], hosp)
+    chat(deps, "book Dr Khan saturday 10am for Sameer")
+    done = chat(deps, "Yes.")
+    assert "booked" in done.reply.lower()
+
+    res = chat(deps, "So is it booked or not?")
+
+    assert "Nothing has happened yet" not in res.reply and "only a proposal" in res.reply and "Reply YES to confirm." in res.reply
+    assert writes(hosp) == ["book"]  # the question wrote nothing: the earlier booking stands and the new proposal is only parked

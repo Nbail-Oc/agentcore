@@ -189,8 +189,8 @@ Offline tests use a scripted Claude client and do not require an API key:
 uv run pytest
 ```
 
-On 25 November 2026, the code at commit `75840f9` passed 592 offline tests
-with the API key unset. The tests use scripted model responses and local mock
+On 25 November 2026, the code at commit `5e33038` passed 597 offline tests (598 after the last wording fix)
+with the API key unset (plus `tests/test_fault_injection.py`, added after that commit). The tests use scripted model responses and local mock
 behavior; they do not establish a live chaos pass rate.
 
 With both services running, execute the evaluation scenarios:

@@ -56,9 +56,9 @@ ALTERNATIVE = {
     "hi": "उसी दिन उसी डॉक्टर के साथ सबसे नज़दीकी खाली समय {when} है।",
 }
 PARKED = {
-    "en": "Nothing has happened yet. Please check the details below.",
-    "hinglish": "Abhi kuch nahi hua hai. Kripya neeche diye details check karein.",
-    "hi": "अभी कुछ नहीं हुआ है। कृपया नीचे दिए विवरण जाँचें।",
+    "en": "The action below is only a proposal and has not been carried out. Please check its details.",
+    "hinglish": "Neeche di gayi action sirf ek prastaav hai, abhi nahi hui hai. Kripya uske details check karein.",
+    "hi": "नीचे दी गई कार्रवाई केवल एक प्रस्ताव है, अभी की नहीं गई है। कृपया उसका विवरण जाँचें।",
 }
 AFTER_FAILURE = "Please tell me how you'd like to go ahead."
 

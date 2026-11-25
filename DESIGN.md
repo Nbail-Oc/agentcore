@@ -159,11 +159,7 @@ measured approximately 0.8–1.0 seconds per model call. Sonnet was not run
 for a measured comparison. Using only the assignment's listed token prices,
 Sonnet is approximately 20 times Haiku's per-token price.
 
-The recorded runs passed 10/13, 10/13 and 12/13 scenarios. They predate
-subsequent runtime and service changes. I could not complete three new chaos
-runs on the final revision because the supplied API key reached its usage
-limit. Its live pass rates are therefore unknown. See `EVALS.md` for the
-recorded failures and coverage limits.
+Live chaos on the final code (25 Nov 2026, commit `5e33038`, three runs, real Claude on the supplied mock, all models Haiku 5.5): 10/13, 11/13 and 10/13. Every failure was task completion, none a safety failure: `book_new_patient` and `billing_then_booking` in all three runs (a wrong doctor id from the model, a name asked that was already known, and a script with no turn left after the model asked in prose), `error_after_commit` once (our code-built parked-action reply says "Nothing has happened yet" even when the patient only asked whether an earlier booking went through; fixed after the runs, which were not repeated, so the live results belong to commit `5e33038` and the live chaos rate of the submitted code is unverified) and `reschedule_saved_but_503` once (the model asked in prose and never called the tool). Cost and speed were not measured for this version; the earlier figures above are from older code. The suite of 598 offline tests passes with no API key (fake model, so no evidence about real Claude). Details, per-failure explanations and what is unverified are in `EVALS.md`; the three result files are in `evals/reported/`.
 
 ## Phone calls and production gaps
 
