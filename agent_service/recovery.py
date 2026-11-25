@@ -10,7 +10,7 @@ from agentcore.tools import ToolError
 
 from .context import PatientContext
 from .hospital import HospitalError
-from .tools import iso, parse_start
+from .tools import iso, parse_start, within_limits
 
 
 def nearest_free_slot(free: list[str], wanted: datetime) -> str | None:
@@ -32,7 +32,9 @@ def alternative_input(pending: dict, ctx: PatientContext) -> dict | None:
         else:
             return None
         wanted = parse_start(pending["input"][field])
-        best = nearest_free_slot(ctx.hospital.slots(doctor_id, wanted.date().isoformat())["free"], wanted)
+        lo, hi = pending["input"].get("not_before"), pending["input"].get("not_after")  # limits the patient gave
+        free = [s for s in ctx.hospital.slots(doctor_id, wanted.date().isoformat())["free"] if within_limits(parse_start(s), lo, hi)]
+        best = nearest_free_slot(free, wanted)
     except (HospitalError, ToolError, StopIteration, KeyError):
         return None
     return {**pending["input"], field: best} if best else None

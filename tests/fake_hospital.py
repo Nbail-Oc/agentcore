@@ -9,6 +9,7 @@ NEW = "2026-12-05T10:00:00+05:30"
 OLD = "2026-12-03T17:30:00+05:30"
 UNKNOWN = HospitalError("unknown", "service_unavailable", 503)
 NOT_SENT = HospitalError("not_sent")
+TIMEOUT = HospitalError("unknown")  # no reply at all: the request may still be running
 
 
 def definite(code):
@@ -58,10 +59,12 @@ class FakeHospital:
 
 
 def appt(start=NEW, status="booked", id="A1003", doctor_id="d5"):
-    return {"id": id, "doctor_id": doctor_id, "start": start, "status": status, "phone": "9988776655"}
+    return {"id": id, "doctor_id": doctor_id, "start": start, "status": status, "phone": "9988776655",
+            "patient_name": "Sameer Kulkarni"}
 
 
-DOCTORS = {"doctors": [{"id": "d5", "name": "Dr. Imran Khan", "specialty": "Orthopaedics"}]}
+DOCTORS = {"doctors": [{"id": "d5", "name": "Dr. Imran Khan", "specialty": "Orthopaedics"},
+                      {"id": "d3", "name": "Dr. Sunita Iyer", "specialty": "General Medicine"}]}
 
 
 def _ctx(hospital, op="op-1", phone="9988776655"):

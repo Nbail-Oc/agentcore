@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from agent_service.filters import SAFE_ADVICE_REPLY, SAFE_UNKNOWN_REPLY, grounded_numbers, no_medical_advice
+from agent_service.filters import (
+    SAFE_ADVICE_REPLY, SAFE_UNKNOWN_REPLY, grounded_numbers, grounded_topics, no_medical_advice, unsupported_topics,
+)
 from agent_service.orchestrator import Deps, handle_chat
 from agent_service.schemas import ChatRequest
 from agentcore.hooks import Block
@@ -42,9 +44,23 @@ def test_info_replies_with_numbers_not_in_the_file_are_replaced(message):
     assert isinstance(decision, Block) and decision.reason == SAFE_UNKNOWN_REPLY
 
 
-def test_known_limit_claims_without_numbers_are_not_caught():
-    # "We accept Star Health insurance" has no number: only the prompt and the evals guard against it.
-    assert grounded_numbers(reply("Yes, we accept Star Health insurance with cashless."), None) is None
+@pytest.mark.parametrize("message", [
+    "Yes, we accept Star Health insurance with cashless.", "Your mediclaim will cover it.", "Cashless treatment is available.",
+    "Coverage depends on your TPA.", "Insurance covers up to Rs 5000.",
+])
+def test_claims_about_topics_the_file_does_not_mention_are_replaced_with_or_without_numbers(message):
+    decision = grounded_topics(reply(message), None)
+
+    assert isinstance(decision, Block) and decision.reason == SAFE_UNKNOWN_REPLY
+
+
+def test_a_topic_the_file_does_mention_is_allowed():
+    assert unsupported_topics("We accept insurance, cashless too.", info="Insurance and cashless are accepted.") == set()
+    assert unsupported_topics("We accept insurance, cashless too.", info="Fees: Rs 500.") == {"insurance", "cashless"}
+
+
+def test_known_limit_unsupported_claims_in_other_words_are_not_caught():
+    assert grounded_topics(reply("Yes, we work with your provider, no need to pay upfront."), None) is None
 
 
 @pytest.mark.parametrize("message", [
@@ -90,3 +106,9 @@ def test_the_booking_agent_cannot_give_medical_advice():
     res = _chat([text(json.dumps({"route": "booking"})), text("It's probably nothing, take paracetamol.")])
 
     assert res.agent == "booking" and res.reply == SAFE_ADVICE_REPLY
+
+
+def test_the_info_agent_cannot_claim_insurance_that_is_not_in_the_file():
+    res = _chat([text(json.dumps({"route": "info"})), text("Yes, we accept Star Health insurance with cashless.")])
+
+    assert res.agent == "info" and res.reply == SAFE_UNKNOWN_REPLY

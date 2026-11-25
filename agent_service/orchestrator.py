@@ -20,15 +20,15 @@ from . import replies
 from .agents import AGENT_TOOLS, system_prompt
 from .confirm import is_confirmation
 from .context import PatientContext
-from .filters import grounded_numbers, no_medical_advice
+from .filters import grounded_numbers, grounded_topics, no_medical_advice
 from .emergency import SAFETY_REPLY, UNVERIFIED_REPLY, check_emergency, has_soft_symptom
-from .hooks import when, write_policy
+from .hooks import approval_key, when, write_policy
 from .recovery import alternative_input
 from .hospital import Hospital, HospitalError
 from .router import route_message
 from .schemas import ChatRequest, ChatResponse
 from .settings import LIGHT, SPECIALIST, SPECIALIST_MAX_SECONDS, SPECIALIST_MODEL
-from .tools import build_registry, parse_start
+from .tools import build_registry, parse_start, unknown_outcome, write_target
 
 MAX_HISTORY = 30
 MAX_TURN_COST_USD = 0.25  # a runaway turn is stopped here (a normal one costs a fraction of a cent)
@@ -85,7 +85,8 @@ def handle_chat(req: ChatRequest, deps: Deps) -> ChatResponse:
 def _turn(req: ChatRequest, session: dict, trace: Trace, deps: Deps) -> Reply:
     lang = replies.detect_language(req.message)
     light = replace(LIGHT, sleep=deps.sleep)
-    ctx = PatientContext(phone=req.phone, hospital=deps.hospital, session_key=req.session_id, sleep=deps.sleep)
+    ctx = PatientContext(phone=req.phone, hospital=deps.hospital, session_key=req.session_id, sleep=deps.sleep, message=req.message, trace=trace,
+                         unresolved=session.setdefault("unresolved", []))  # the session's own list: edits are saved with it
 
     verdict = check_emergency(deps.client, trace, req.message, config=light)
     if verdict == "unverified" and has_soft_symptom(req.message):
@@ -115,7 +116,7 @@ def _hooks(trace: Trace, agent: str) -> Hooks:
     def budget(request, ctx):
         return Block("Sorry, this is taking too long. Please try again.") if trace.total_cost_usd > MAX_TURN_COST_USD else None
 
-    after_model = [no_medical_advice] + ([grounded_numbers] if agent == "info" else [])
+    after_model = [no_medical_advice] + ([grounded_numbers, grounded_topics] if agent == "info" else [])
     return Hooks(before_tool=[write_policy], before_model=[budget], after_model=after_model)
 
 
@@ -140,6 +141,7 @@ def _run_specialist(agent, messages, session, ctx, trace, deps, lang, lead: str 
         text = replies.AFTER_FAILURE
     if result.pending:
         p = result.pending
+        text = replies.PARKED[lang]  # nothing was done yet: the model's words are not used, only code and the exact details
         session["pending"] = {"id": uuid.uuid4().hex, "name": p.name, "input": p.input, "fingerprint": p.fingerprint,
                               "details": p.details, "agent": agent}
         text += f"\n\n{replies.DETAILS[lang]}: {p.details}\n{replies.CONFIRM[lang]}"
@@ -150,13 +152,27 @@ def _run_specialist(agent, messages, session, ctx, trace, deps, lang, lead: str 
 
 def _run_confirmed(pending, req, session, ctx, trace, deps, lang) -> Reply:
     """The patient clearly confirmed: run the stored call through the same pipeline as any model-requested call."""
-    ctx.approved.add(pending["fingerprint"])
-    ctx.operation_id = pending["id"]  # becomes the booking's idempotency key
+    ctx.approved.add(approval_key(pending["fingerprint"], pending["details"]))
+    ctx.message = ""  # the stored call was already checked against what the patient asked; "yes" is not a new request
+    target = write_target(pending["name"], pending["input"])
+    # A repeat of a booking whose outcome is unknown reuses its key, so the hospital cannot book it twice.
+    ctx.operation_id = next((u["operation_id"] for u in ctx.unresolved if u["target"] == target), pending["id"])
+    # Saved before anything is sent: if the process dies mid-write, the restarted chat sees a write in flight
+    # (and no pending yes to repeat) instead of a clean slate.
+    ctx.unresolved.append({"target": target, "operation_id": ctx.operation_id, "in_flight": True})
+    deps.store.save(req.session_id, session)
     result = execute_tool_call(
         build_registry(AGENT_TOOLS[pending["agent"]]), pending["name"], pending["input"], ctx, trace, _hooks(trace, pending["agent"]),
     )
+    ctx.unresolved[:] = [u for u in ctx.unresolved if not u.get("in_flight")]  # the write came back (or was refused)
     outcome = ctx.outcomes[-1] if ctx.outcomes else None
+    if outcome is None and ctx.write_started:  # the handler began but raised before any result: it may have sent the request
+        outcome = unknown_outcome(ctx, pending["name"])
     ctx.approved.clear()  # approval is for this one call only
+    if outcome:  # known now, or still unknown: later turns must not start a conflicting write
+        ctx.unresolved[:] = [u for u in ctx.unresolved if u["target"] != target]
+        if outcome["outcome"] == "unknown":
+            ctx.unresolved.append({"target": target, "operation_id": ctx.operation_id})
     ctx.operation_id = None
     if outcome and outcome["outcome"] in ("success", "unknown"):
         session["failures"], session["active_agent"] = 0, pending["agent"]

@@ -18,7 +18,7 @@ from agent_service.recovery import alternative_input, nearest_free_slot
 from agent_service.tools import IST, parse_start
 from agentcore.trace import Trace
 from tests.fake_claude import FakeClaude, text, tool_use
-from tests.fake_hospital import FakeHospital, _ctx, appt, definite
+from tests.fake_hospital import OLD, FakeHospital, _ctx, appt, definite
 from tests.test_against_mock import CLEAR, YES, appts, chat, deps, fresh_mock, mock, route  # noqa: F401
 from tests.test_chat_flow import BOOK, chat as flow_chat, deps_for, hospital
 
@@ -183,3 +183,41 @@ def test_the_orchestrator_hands_the_judge_the_agents_last_message():
 
     assert len(judge_requests) == 2
     assert "nearest free time" in judge_requests[1]  # turn 3: the message the patient was answering
+
+
+# ---------------------------------------------------------------- the patient's time limit survives the recovery
+
+FREE = ["2026-12-05T18:00:00+05:30", "2026-12-05T19:30:00+05:30"]  # the wanted 18:30 slot was taken
+
+
+def _alt(name="book_appointment", **extra):
+    field = "start" if name == "book_appointment" else "new_start"
+    inp = {"doctor_id": "d5", "start": "2026-12-05T18:30:00+05:30", "patient_name": "Sameer Kulkarni"} if field == "start" else           {"appointment_id": "A1003", "new_start": "2026-12-05T18:30:00+05:30"}
+    hospital = FakeHospital(slots=[{"free": FREE}], appointments=[[appt(OLD)]])
+    return alternative_input({"name": name, "input": {**inp, **extra}}, _ctx(hospital))
+
+
+def test_a_not_before_limit_is_kept_so_18_00_is_not_proposed_after_18_15():
+    assert _alt(not_before="18:15")["start"] == "2026-12-05T19:30:00+05:30"
+    assert _alt("reschedule_appointment", not_before="18:15")["new_start"] == "2026-12-05T19:30:00+05:30"
+
+
+def test_a_not_after_limit_is_kept_too():
+    assert _alt(not_after="18:15")["start"] == "2026-12-05T18:00:00+05:30"
+
+
+def test_without_a_limit_the_nearest_time_is_proposed_and_still_needs_its_own_yes():
+    assert _alt()["start"] == "2026-12-05T18:00:00+05:30"
+
+
+def test_when_no_free_time_meets_the_limit_nothing_is_proposed_so_the_patient_is_asked():
+    assert _alt(not_before="20:00") is None
+
+
+def test_the_limit_is_carried_into_the_proposal_so_it_applies_again_next_time():
+    assert _alt(not_before="18:15")["not_before"] == "18:15"
+
+
+def test_recovery_limits_are_inclusive_too():
+    assert _alt(not_before="18:00")["start"] == "2026-12-05T18:00:00+05:30"   # "at or after 6:00"
+    assert _alt(not_before="18:01")["start"] == "2026-12-05T19:30:00+05:30"   # strictly after 6:00

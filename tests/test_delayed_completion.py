@@ -28,12 +28,13 @@ def test_a_definite_error_after_an_unknown_try_is_not_reported_as_failed_when_no
         assert ctx.flags["handoff"] is True
 
 
-def test_a_booking_that_shows_up_after_a_later_definite_error_is_success():
-    hospital = FakeHospital(book=[UNKNOWN, definite("slot_taken")], appointments=[[appt(NEW)]])
+def test_a_matching_booking_after_a_later_definite_error_is_still_unknown():
+    # the record may be another actor's (it is why the slot was refused): no correlation, no claim
+    hospital = FakeHospital(book=[UNKNOWN, definite("slot_taken")], appointments=[[], [appt(NEW)]])
 
     _, out = _run("book_appointment", BOOK, _ctx(hospital))
 
-    assert (out["outcome"], out["verified"]) == ("success", True)
+    assert out["outcome"] == "unknown"
 
 
 class DelayedReschedule(FakeHospital):

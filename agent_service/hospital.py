@@ -1,9 +1,11 @@
 """Client for the hospital system. Classifies every failure by what we can know about the write.
 
 HospitalError.kind:
-  definite  the hospital answered with a 4xx error code: nothing was changed
+  definite  the hospital answered 400, 404, 409 or 422 (its documented rejections): nothing was changed
   not_sent  the request provably never reached the hospital (connection refused or timed out connecting)
-  unknown   timeout after sending, 5xx (a 503 can come after the write was saved), or an unreadable reply
+  unknown   anything else: timeout after sending, 5xx (a 503 can come after the write was saved), 408, 429,
+            other 4xx, a redirect, 202/204, or an unreadable reply. None of these proves that nothing happened,
+            and a 2xx other than 200/201 does not prove that the write was done.
 
 GET requests are retried with backoff. Writes are never retried here: the tools decide, per write.
 Ids are validated before they go into a URL path (httpx collapses "../", which would reach other routes).
@@ -32,6 +34,24 @@ def _safe(kind: str, value: str) -> str:
     return value
 
 
+def _text(value: Any) -> str:
+    """Free text from the hospital is untrusted: one short plain line, no markup, no control characters."""
+    return " ".join(re.sub("[" + chr(0) + "-" + chr(31) + chr(127) + "<>]+", " ", str(value)).split())[:80]
+
+
+def _own(items: list, phone: str, kind: str) -> list[dict]:
+    """The hospital is untrusted. Other patients' records are dropped. A record that may be ours but cannot be
+    read (unknown shape, id or owner) makes the whole read fail: an incomplete list is never shown as complete."""
+    mine = []
+    for i in items:
+        if isinstance(i, dict) and isinstance(i.get("phone"), str) and i["phone"] != phone:
+            continue
+        if not (isinstance(i, dict) and i.get("phone") == phone and isinstance(i.get("id"), str) and re.fullmatch(_ID[kind], i["id"])):
+            raise HospitalError("unknown", None, 200)
+        mine.append(i)
+    return [{**i, "description": _text(i["description"])} if "description" in i else i for i in mine]
+
+
 class Hospital:
     def __init__(self, base_url: str | None = None, client: httpx.Client | None = None,
                  sleep: Callable[[float], None] = time.sleep):
@@ -53,13 +73,14 @@ class Hospital:
         except ValueError:
             data = None
         error = data.get("error") if isinstance(data, dict) else None
-        message = str(data.get("message", ""))[:200] if isinstance(data, dict) else ""
-        if response.status_code >= 500:
-            raise HospitalError("unknown", error, response.status_code, message)
-        if response.status_code >= 400:
-            raise HospitalError("definite", error, response.status_code, message)
-        if not isinstance(data, (dict, list)):
-            raise HospitalError("unknown", None, response.status_code)
+        if not (isinstance(error, str) and re.fullmatch(r"[a-z_]{1,40}", error)):
+            error = None  # only a code shaped like the documented ones is kept
+        message = ""  # the hospital's free text is untrusted and is never passed on (to the model or the patient)
+        status = response.status_code
+        if status in (400, 404, 409, 422):
+            raise HospitalError("definite", error, status, message)
+        if status not in (200, 201) or not isinstance(data, (dict, list)):
+            raise HospitalError("unknown", error, status, message)
         return data
 
     def _request(self, method: str, path: str, params: dict | None = None, body: dict | None = None) -> Any:
@@ -72,20 +93,34 @@ class Hospital:
                     raise
                 self._sleep(0.3 * 2**i)
 
+    def _field(self, path: str, key: str, kind: type, params: dict | None = None) -> Any:
+        """A reply that lacks the field we need is an unusable reply (unknown), never a crash."""
+        data = self._request("GET", path, params)
+        value = data.get(key) if isinstance(data, dict) else None
+        if not isinstance(value, kind):
+            raise HospitalError("unknown", None, 200)
+        return value
+
     def now(self) -> datetime:
-        return datetime.fromisoformat(self._request("GET", "/now")["now"])
+        try:
+            return datetime.fromisoformat(self._field("/now", "now", str))
+        except ValueError:
+            raise HospitalError("unknown", None, 200) from None
 
     def doctors(self, specialty: str | None = None) -> dict:
-        return self._request("GET", "/doctors", {"specialty": specialty} if specialty else None)
+        doctors = self._field("/doctors", "doctors", list, {"specialty": specialty} if specialty else None)
+        return {"doctors": [{**d, "name": _text(d.get("name", "")), "specialty": _text(d.get("specialty", ""))}
+                            for d in doctors if isinstance(d, dict) and isinstance(d.get("id"), str)
+                            and re.fullmatch(_ID["doctor"], d["id"])]}
 
     def slots(self, doctor_id: str, date: str) -> dict:
         return self._request("GET", f"/doctors/{_safe('doctor', doctor_id)}/slots", {"date": _safe("date", date)})
 
     def appointments(self, phone: str) -> list[dict]:
-        return self._request("GET", "/appointments", {"phone": phone})["appointments"]
+        return _own(self._field("/appointments", "appointments", list, {"phone": phone}), phone, "appointment")
 
     def bills(self, phone: str) -> list[dict]:
-        return self._request("GET", "/bills", {"phone": phone})["bills"]
+        return _own(self._field("/bills", "bills", list, {"phone": phone}), phone, "bill")
 
     def book(self, doctor_id: str, start: str, patient_name: str, phone: str, idempotency_key: str) -> dict:
         return self._request("POST", "/appointments", body={

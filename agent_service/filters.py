@@ -30,6 +30,19 @@ def _numbers(text: str) -> tuple[set[str], set[str], set[str]]:
 
 _KNOWN = _numbers(HOSPITAL_INFO)
 
+# Topics patients ask about that the file may not cover. A reply that names one the file never mentions is
+# replaced with "I don't have that information" (a hedged reply that names it is replaced too: same meaning).
+_TOPICS = re.compile(r"\b(insurance|insurer|insured|cashless|mediclaim|tpa|coverage|reimburs\w*|discount\w*|concession\w*|waiver|ayushman|cghs|pmjay)\b", re.IGNORECASE)
+
+
+def unsupported_topics(reply: str, info: str = HOSPITAL_INFO) -> set[str]:
+    return {t.lower() for t in _TOPICS.findall(reply) if t.lower() not in info.lower()}
+
+
+def grounded_topics(response, ctx):
+    """after_model hook for the info agent. Cannot catch the same claim in other words or other languages."""
+    return Block(SAFE_UNKNOWN_REPLY) if unsupported_topics(response_text(response)) else None
+
 
 def grounded_numbers(response, ctx):
     """after_model hook for the info agent."""

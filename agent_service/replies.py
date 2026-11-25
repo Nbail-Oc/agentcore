@@ -55,6 +55,11 @@ ALTERNATIVE = {
     "hinglish": "Usi din usi doctor ke saath sabse paas ka free time {when} hai.",
     "hi": "उसी दिन उसी डॉक्टर के साथ सबसे नज़दीकी खाली समय {when} है।",
 }
+PARKED = {
+    "en": "Nothing has happened yet. Please check the details below.",
+    "hinglish": "Abhi kuch nahi hua hai. Kripya neeche diye details check karein.",
+    "hi": "अभी कुछ नहीं हुआ है। कृपया नीचे दिए विवरण जाँचें।",
+}
 AFTER_FAILURE = "Please tell me how you'd like to go ahead."
 
 _REASONS = {

@@ -4,8 +4,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import hmac  # noqa: E402
+import os  # noqa: E402
+
 import anthropic  # noqa: E402
-from fastapi import FastAPI, HTTPException  # noqa: E402
+from fastapi import FastAPI, Header, HTTPException  # noqa: E402
 
 from agentcore.session import InMemorySessionStore  # noqa: E402
 
@@ -38,8 +41,12 @@ def chat(req: ChatRequest) -> ChatResponse:  # plain def: FastAPI runs it in a t
 
 
 @app.get("/trace/{session_id}")
-def trace(session_id: str):
-    # shortcut: no authentication (the spec gives the endpoint only a session id). Phone numbers are masked in spans.
+def trace(session_id: str, authorization: str | None = Header(None)):
+    # Traces hold patient messages. The endpoint stays open by default because the assignment defines it with
+    # only a session id; set TRACE_TOKEN to require "Authorization: Bearer <token>" (do this for real patients).
+    token = os.getenv("TRACE_TOKEN")
+    if token and not hmac.compare_digest((authorization or "").encode(), f"Bearer {token}".encode()):
+        raise HTTPException(status_code=401, detail="A valid trace token is required.")
     traces = get_deps().store.traces(session_id)
     if not traces:
         raise HTTPException(status_code=404, detail="No trace for this session.")

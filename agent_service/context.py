@@ -12,9 +12,13 @@ class PatientContext:
     phone: str  # the verified WhatsApp number: the only identity tools and hooks ever use
     hospital: Hospital
     session_key: str
+    message: str = ""  # the patient's latest message, only for checks that compare it with what the model asked for
     approved: set[str] = field(default_factory=set)  # fingerprints of calls the patient confirmed (set by code only)
+    trace: Any = None  # where failure evidence goes (the turn's Trace)
+    write_started: bool = False  # a write handler began: a request may have been sent, whatever happens next
     operation_id: str | None = None  # id of the confirmed action being run; becomes the booking idempotency key
     read_only: bool = False  # writes are refused this turn
+    unresolved: list[dict] = field(default_factory=list)  # writes whose outcome is unknown, kept in the session
     outcomes: list[dict] = field(default_factory=list)  # structured results of writes run this turn
     flags: dict[str, Any] = field(default_factory=lambda: {"handoff": False})
     sleep: Callable[[float], None] = time.sleep
