@@ -248,3 +248,44 @@ def test_extra_request_params_are_passed_to_the_sdk():
     _call(fake, t, params={"thinking": {"type": "disabled"}})
 
     assert fake.messages.calls[0]["thinking"] == {"type": "disabled"}
+
+
+def test_exact_request_that_reaches_the_client():
+    class In(BaseModel):
+        n: int
+
+    reg = ToolRegistry()
+    reg.register("double", "Double a number.", In, lambda a, c: a.n * 2)
+    fake = FakeClaude([text("ok")])
+    cfg = CallConfig(timeout_s=12.0, params={"thinking": {"type": "disabled"}})
+
+    run_agent(client=fake, model="claude-haiku-5-5", system="be brief", registry=reg,
+              messages=[{"role": "user", "content": "hi"}], max_tokens=300, config=cfg)
+
+    [sent] = fake.messages.calls
+    assert sent == {
+        "model": "claude-haiku-5-5", "max_tokens": 300, "system": "be brief",
+        "messages": [{"role": "user", "content": "hi"}], "timeout": 12.0, "thinking": {"type": "disabled"},
+        "tools": [{"name": "double", "description": "Double a number.", "input_schema": {
+            "properties": {"n": {"title": "N", "type": "integer"}}, "required": ["n"],
+            "title": "In", "type": "object", "additionalProperties": False}}],
+    }
+
+
+def test_only_model_py_calls_messages_create():
+    from pathlib import Path
+
+    root = Path(__file__).parent.parent
+    for path in [*(root / "agentcore").glob("*.py"), *(root / "agent_service").glob("*.py")]:
+        if path.name != "model.py":
+            assert "messages.create" not in path.read_text(encoding="utf-8"), path
+
+
+def test_a_failed_attempt_has_unknown_cost_not_zero():
+    fake, t, trace = FakeClaude([rate_limited(), text("ok")]), FakeTime(), Trace()
+
+    _call(fake, t, trace=trace)
+
+    failed, ok = trace.spans
+    assert failed.cost_usd is None and ok.cost_usd is not None
+    assert not trace.cost_complete

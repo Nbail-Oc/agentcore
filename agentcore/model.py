@@ -77,7 +77,13 @@ def call_model(
     client: Any, trace: Trace, *, model: str, system: Any, tools: list[dict], messages: list[dict],
     max_tokens: int, config: CallConfig = CallConfig(), deadline: float | None = None,
 ) -> Any:
-    """Returns the SDK response, or raises ModelCallError. `deadline` is a config.clock() time."""
+    """Returns the SDK response, or raises ModelCallError. `deadline` is a config.clock() time.
+
+    Deadline guarantee: no attempt starts after the deadline, each attempt gets the SDK timeout
+    min(timeout_s, time left), and a retry wait that would pass the deadline is skipped. The SDK call is
+    synchronous and cannot be interrupted from here, so a call in flight can overrun by the SDK's own
+    timeout handling (connect/read timeouts apply per phase). Do not promise a hard wall-clock cap.
+    """
     # Our retry policy is the only one: turn the SDK's own retries off so they don't multiply ours.
     api = client.with_options(max_retries=0) if hasattr(client, "with_options") else client
     limit = config.clock() + config.overall_timeout_s
@@ -103,7 +109,7 @@ def call_model(
         except anthropic.APIError as e:
             status = getattr(e, "status_code", None)
             trace.add(Span(
-                "model", model, request, None, time.perf_counter() - started, is_error=True, attempt=attempt,
+                "model", model, request, None, time.perf_counter() - started, cost_usd=None, is_error=True, attempt=attempt,  # no usage reported: unknown
                 error=type(e).__name__ + (f" {status}" if status else ""),
             ))
             if not _retryable(e) or attempt >= config.max_attempts:
@@ -113,12 +119,13 @@ def call_model(
                 raise ModelCallError(type(e).__name__, attempt, status) from None
             config.sleep(delay)
             continue
-        in_tok = getattr(response.usage, "input_tokens", 0) or 0
-        out_tok = getattr(response.usage, "output_tokens", 0) or 0
+        in_tok = getattr(response.usage, "input_tokens", None)
+        out_tok = getattr(response.usage, "output_tokens", None)
+        cost = trace.cost_usd(model, in_tok, out_tok) if in_tok is not None and out_tok is not None else None  # no usage: unknown, not zero
         trace.add(Span(
             "model", model, request,
             {"stop_reason": response.stop_reason, "text": response_text(response),
              "tool_calls": [b.name for b in response.content if b.type == "tool_use"]},
-            time.perf_counter() - started, in_tok, out_tok, trace.cost_usd(model, in_tok, out_tok), attempt=attempt,
+            time.perf_counter() - started, in_tok or 0, out_tok or 0, cost, attempt=attempt,
         ))
         return response

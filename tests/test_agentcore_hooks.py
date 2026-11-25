@@ -1,5 +1,6 @@
 """Tests for hooks in agentcore: allow, block with a reason, or park a call until the user confirms."""
 
+import pytest
 from pydantic import BaseModel
 
 from agentcore.hooks import Block, Confirm, Hooks, ToolCall
@@ -227,3 +228,137 @@ def test_an_after_tool_hook_that_crashes_keeps_the_tool_result():
     _run(fake, [], Hooks(after_tool=[broken]))
 
     assert _tool_results(fake)[0]["content"] == "2"
+
+
+def test_a_confirm_from_an_after_model_hook_blocks_instead_of_being_ignored():
+    ran = []
+
+    result = _run(FakeClaude([tool_use("add", {"a": 1, "b": 1}), text("ok")]), ran, Hooks(after_model=[lambda r, c: Confirm("x")]))
+
+    assert result.status == "blocked" and ran == []
+
+
+def test_a_confirm_from_a_before_model_hook_pauses_without_calling_the_model_and_can_resume():
+    approved = set()
+
+    def gate(request, ctx):
+        return None if ctx in approved else Confirm("Send the conversation to the model?")
+
+    fake = FakeClaude([text("hello")])
+
+    paused = _run(fake, [], Hooks(before_model=[gate]), ctx="u1")
+
+    assert (paused.status, paused.text) == ("paused", "")
+    assert fake.messages.calls == [] and paused.model_pending.details == "Send the conversation to the model?"
+    approved.add("u1")  # the application records the user's yes, then runs the same request again
+    resumed = _run(fake, [], Hooks(before_model=[gate]), ctx="u1")
+    assert (resumed.status, resumed.text) == ("done", "hello")
+    assert paused.model_pending.fingerprint  # identifies the parked request; it is not authentication
+
+
+def test_the_first_decision_wins_whether_it_is_block_or_confirm():
+    block, confirm = (lambda c, x: Block("no")), (lambda c, x: Confirm("sure?"))
+    for hooks, expected in (([confirm, block], "NOT EXECUTED YET"), ([block, confirm], "no")):
+        ran = []
+        fake = FakeClaude([tool_use("add", {"a": 1, "b": 1}), text("ok")])
+
+        _run(fake, ran, Hooks(before_tool=hooks))
+
+        assert ran == [] and _tool_results(fake)[0]["content"].startswith(expected)
+
+
+@pytest.mark.parametrize("bad", [False, "deny", {"block": True}, 0, ["no"]])
+def test_an_unsupported_before_tool_decision_blocks_the_call(bad):
+    ran = []
+    fake = FakeClaude([tool_use("pay", {"a": 1, "b": 0}), text("ok")])
+
+    _run(fake, ran, Hooks(before_tool=[lambda call, ctx: bad]))
+
+    assert ran == [] and _tool_results(fake)[0]["is_error"] is True
+
+
+def test_an_unsupported_model_hook_decision_stops_the_run():
+    fake = FakeClaude([text("never")])
+
+    result = _run(fake, [], Hooks(before_model=[lambda r, c: "deny"]))
+
+    assert result.status == "blocked" and fake.messages.calls == []
+
+
+def test_an_after_tool_hook_returning_a_non_result_keeps_the_real_result():
+    fake = FakeClaude([tool_use("add", {"a": 1, "b": 1}), text("ok")])
+
+    result = _run(fake, [], Hooks(after_tool=[lambda call, res, ctx: "oops"]))
+
+    assert result.status == "done" and _tool_results(fake)[0]["content"] == "2"
+
+
+def test_a_hook_cannot_change_the_arguments_the_handler_receives():
+    ran = []
+
+    def tamper(call, ctx):
+        call.args.a = 999  # a validated model is mutable unless the runtime guards it
+
+    fake = FakeClaude([tool_use("pay", {"a": 1, "b": 0}), text("ok")])
+
+    _run(fake, ran, Hooks(before_tool=[tamper]))
+
+    assert ran == []  # blocked, not run with changed input
+    assert _tool_results(fake)[0]["is_error"] is True
+
+
+def test_a_model_pause_keeps_an_earlier_tool_confirmation_and_the_completed_messages():
+    calls = []
+
+    def gate(request, ctx):  # allow the first model call, pause the second
+        calls.append(1)
+        return Confirm("send to model?") if len(calls) == 2 else None
+
+    park = lambda call, ctx: Confirm("pay?") if call.name == "pay" else None
+    fake = FakeClaude([tool_use("pay", {"a": 1, "b": 0}), text("never")])
+
+    paused = _run(fake, [], Hooks(before_tool=[park], before_model=[gate]))
+
+    assert paused.status == "paused"
+    assert paused.pending.name == "pay"  # the parked tool call is not overwritten by the model pause
+    assert paused.model_pending.details == "send to model?"
+    assert [m["role"] for m in paused.messages] == ["assistant", "user"]  # completed work to resume with
+
+
+def test_resuming_with_the_completed_messages_does_not_replay_the_tool():
+    ran, calls = [], []
+
+    def gate(request, ctx):
+        calls.append(1)
+        return Confirm("ok?") if len(calls) == 2 else None
+
+    fake = FakeClaude([tool_use("add", {"a": 1, "b": 1}), text("done")])
+    base = [{"role": "user", "content": "hi"}]
+    paused = run_agent(client=fake, model="m", system="s", registry=_registry(ran), messages=base, hooks=Hooks(before_model=[gate]))
+
+    resumed = run_agent(client=fake, model="m", system="s", registry=_registry(ran),
+                        messages=base + paused.messages, hooks=Hooks(before_model=[gate]))
+
+    assert (paused.status, resumed.status, resumed.text) == ("paused", "done", "done")
+    assert ran == [("add", 1)]  # once, not twice
+    assert len(fake.messages.calls) == 2
+
+
+def test_a_later_hook_cannot_restore_arguments_another_hook_changed():
+    seen, ran = [], []
+
+    def tamper(call, ctx):
+        call.args.a = 999
+
+    def policy(call, ctx):  # the checker sees the tampered value
+        seen.append(call.args.a)
+
+    def restore(call, ctx):
+        call.args.a = 1
+
+    fake = FakeClaude([tool_use("pay", {"a": 1, "b": 0}), text("ok")])
+
+    _run(fake, ran, Hooks(before_tool=[tamper, policy, restore]))
+
+    assert ran == [] and seen == []  # blocked at the hook that changed them, before anyone inspected
+    assert _tool_results(fake)[0]["is_error"] is True

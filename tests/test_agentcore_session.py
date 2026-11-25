@@ -89,3 +89,15 @@ def test_traces_are_kept_per_session_in_order():
 
     assert [t["id"] for t in store.traces("s")] == ["t1", "t2"]
     assert store.traces("other") == []
+
+
+def test_sessions_do_not_see_each_others_data_owner_or_traces():
+    store = InMemorySessionStore()
+    store.bind("a", "1111")
+    store.bind("b", "2222")
+    store.save("a", {"secret": "a-only"})
+    store.add_trace("a", {"id": "t"})
+
+    assert store.load("b") is None and store.traces("b") == []
+    assert (store.owner("a"), store.owner("b")) == ("1111", "2222")
+    assert store.lock("a") is not store.lock("b")

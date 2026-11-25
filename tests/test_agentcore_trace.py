@@ -143,3 +143,11 @@ def test_long_values_are_clipped_in_spans():
     trace = _run(FakeClaude([tool_use("add", {"a": 1, "b": 1}), text("ok")]), reg=reg).trace
 
     assert len(trace.spans[1].output) < 5_000
+
+
+def test_missing_usage_makes_the_cost_unknown_not_zero():
+    reply = text("5").model_copy(update={"usage": None})
+
+    trace = _run(FakeClaude([reply])).trace
+
+    assert trace.spans[0].cost_usd is None and not trace.cost_complete

@@ -21,7 +21,12 @@ class SessionStore(Protocol):
 
 
 class InMemorySessionStore:
-    """Single-process only. shortcut: grows without limit and is lost on restart; use Redis with a TTL."""
+    """Single-process only. shortcut: grows without limit and is lost on restart; use Redis with a TTL.
+
+    Limits: everything (owners, data, traces, pending actions) is lost on restart. Locks are threading locks,
+    so they serialize one process only; several workers would need a shared lock (for example in Redis).
+    load/save copy the data, so callers never share references. Data is not encrypted.
+    """
 
     def __init__(self) -> None:
         self._guard = threading.Lock()  # protects the dicts below; never held while a session lock is

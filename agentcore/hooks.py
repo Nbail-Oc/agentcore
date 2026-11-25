@@ -1,7 +1,7 @@
 """Hooks: checkpoints around model and tool calls. Policy lives in the hooks, not in agentcore.
 
 A hook returns None or Allow() to let the call go ahead, Block(reason) to stop it, or (tool calls
-only) Confirm(details) to park it until the end user says yes. agentcore never knows what a call means.
+only) Confirm(details) to park it until the end user says yes. Anything else counts as Block (fail closed). agentcore never knows what a call means.
 
   before_tool(call, ctx)          -> decision    runs after input validation, before the tool
   after_tool(call, result, ctx)   -> ToolResult or None (None keeps the result)
@@ -56,7 +56,14 @@ class ToolCall:
 
 @dataclass(frozen=True)
 class PendingCall:
-    """A tool call parked by Confirm. Run it later through execute_tool_call once the user agrees."""
+    """A tool call parked by Confirm. Run it later through execute_tool_call once the user agrees.
+
+    The fingerprint only says "same tool, same arguments". It is not authentication and not approval.
+    The application must: keep the PendingCall with the verified user (not in anything the user controls),
+    show the user `details` built from the call's own arguments, accept only that user's clear yes, grant
+    approval for this fingerprint only (so changed arguments need a new Confirm), and discard the
+    PendingCall once it has run or been refused (so it cannot be replayed).
+    """
 
     name: str
     input: dict
@@ -82,4 +89,7 @@ def first_decision(hooks: list[Callable], *args: Any) -> Allow | Block | Confirm
             return Block("A safety check failed, so this was not done.")
         if isinstance(decision, (Block, Confirm)):
             return decision
+        if decision is not None and not isinstance(decision, Allow):  # a typo like "deny" must not mean "allow"
+            log.error("hook %s returned an unsupported decision: %s", getattr(hook, "__name__", "hook"), type(decision).__name__)
+            return Block("A safety check failed, so this was not done.")
     return Allow()

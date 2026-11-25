@@ -40,6 +40,10 @@ class Span:
 
 @dataclass
 class Trace:
+    """Debugging aid, not a privacy guarantee (redaction is best effort; spans can still hold user text)
+    and not a billing statement (costs are estimates from `prices`; cached tokens are not priced separately).
+    """
+
     prices: dict[str, tuple[float, float]] = field(default_factory=lambda: dict(DEFAULT_PRICES))
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     spans: list[Span] = field(default_factory=list)

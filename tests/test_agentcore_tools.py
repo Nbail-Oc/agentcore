@@ -115,3 +115,34 @@ def test_unexpected_exception_message_is_not_logged(caplog):
 
     assert "hunter2" not in caplog.text
     assert "RuntimeError" in caplog.text
+
+
+def test_duplicate_name_is_rejected_and_keeps_the_first_tool():
+    reg, calls = _registry()
+
+    try:
+        reg.register("add", "Other.", AddIn, lambda args, ctx: "other")
+    except ValueError as e:
+        assert "add" in str(e)
+    else:
+        raise AssertionError("duplicate registration was accepted")
+
+    assert reg.execute("add", {"a": 1, "b": 2}).content == "3"
+    assert len(reg.definitions()) == 1
+
+
+def test_non_object_input_never_reaches_the_handler():
+    reg, calls = _registry()
+
+    for raw in (None, "a=1", [1, 2], 5):
+        assert reg.execute("add", raw).is_error
+    assert calls == []
+
+
+def test_validation_error_does_not_echo_the_rejected_value():
+    reg, calls = _registry()
+
+    result = reg.execute("add", {"a": "9876543210-secret", "b": 1})
+
+    assert result.is_error and "9876543210-secret" not in result.content
+    assert calls == []

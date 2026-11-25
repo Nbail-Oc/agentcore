@@ -39,6 +39,8 @@ class ToolRegistry:
 
     def register(self, name: str, description: str, input_model: type[BaseModel], fn: Callable[[Any, Any], Any]) -> None:
         """fn(args, ctx) gets the validated input model and an opaque caller context."""
+        if name in self._tools:  # a silent overwrite would swap a tool's behaviour without notice
+            raise ValueError(f"Tool already registered: {name}")
         self._tools[name] = _Tool(name, description, input_model, fn)
 
     def definitions(self) -> list[dict]:
@@ -86,6 +88,10 @@ class ToolRegistry:
             return ToolResult("The tool returned a result that could not be converted to JSON.", True)
 
     def execute(self, name: str, raw_input: Any, ctx: Any = None) -> ToolResult:
-        """Validate and run one call, with no hooks."""
+        """Validate and run one call with NO hooks: no policy, no confirmation, no trace.
+
+        Only for tests and trusted code. Application code must go through
+        agentcore.loop.execute_tool_call (a test enforces this for agent_service).
+        """
         prepared = self.prepare(name, raw_input)
         return prepared if isinstance(prepared, ToolResult) else self.run(*prepared, ctx)
